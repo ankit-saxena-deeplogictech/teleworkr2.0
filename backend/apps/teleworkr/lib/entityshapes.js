@@ -84,8 +84,16 @@ const REGISTER = Object.freeze({
         note: "Stamped with the policy version that produced it. Balance is projected over this, never stored."},
 
     // --- work and knowledge ---
+    task: {shape: SHAPES.MUTABLE, erasure: ERASURE.ERASE, keep: null, anchor: ANCHORS.NONE,
+        note: "The row. Edges and events around it answer who, when and why."},
     task_relation: {shape: SHAPES.EDGE, erasure: ERASURE.RETAIN, keep: null, anchor: ANCHORS.NONE,
         note: "blocks · subtask · duplicate, with its own timestamps — that is what makes 'blocked 6 days' answerable."},
+    task_watcher: {shape: SHAPES.EDGE, erasure: ERASURE.ERASE, keep: null, anchor: ANCHORS.NONE,
+        note: "Watching is a relation, never an array on the task."},
+    task_comment: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.ERASE, keep: null, anchor: ANCHORS.NONE,
+        note: "Comments are never edited in place; a correction is a new comment."},
+    task_event: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.PSEUDONYMISE, keep: null, anchor: ANCHORS.NONE,
+        note: "The activity trail: status transitions and field changes, with before and after."},
     page_version: {shape: SHAPES.VERSIONED_POINTER, erasure: ERASURE.PSEUDONYMISE, keep: null, anchor: ANCHORS.NONE,
         note: "Same shape as leave policy. last_reviewed is not updated_at."},
     attachment: {shape: SHAPES.EDGE, erasure: ERASURE.ERASE, keep: null, anchor: ANCHORS.NONE,

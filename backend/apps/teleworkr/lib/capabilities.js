@@ -90,7 +90,14 @@ const CATALOGUE = Object.freeze({
     "audit.read_all": {label: "Read the whole audit log", scopes: [SCOPES.ORG]},
     "audit.read_policy": {label: "Read compliance and policy audit entries", scopes: [SCOPES.ORG]},
     "wellbeing.read_own": {label: "Read your own load", scopes: [SCOPES.SELF]},
-    "wellbeing.read_aggregate": {label: "Read team load as an aggregate", scopes: [SCOPES.DIRECT_REPORTS, SCOPES.TEAM, SCOPES.ORG]}
+    "wellbeing.read_aggregate": {label: "Read team load as an aggregate", scopes: [SCOPES.DIRECT_REPORTS, SCOPES.TEAM, SCOPES.ORG]},
+
+    // tasks (D1/D2) — collaboration objects, org-wide reads
+    "task.create": {label: "Create tasks", scopes: [SCOPES.ORG]},
+    "task.read": {label: "Read tasks", scopes: [SCOPES.ORG]},
+    "task.edit": {label: "Edit task fields", scopes: [SCOPES.ORG]},
+    "task.assign": {label: "Assign or reassign a task", scopes: [SCOPES.ORG], always_audited: true},
+    "task.delete": {label: "Delete a task", scopes: [SCOPES.ORG], always_audited: true}
 });
 
 /**
@@ -102,23 +109,27 @@ const CATALOGUE = Object.freeze({
 const BUILTIN_ROLES = Object.freeze({
     employee: {label: "Employee", capabilities: [
         ["time.read_own", SCOPES.SELF], ["timesheet.read", SCOPES.SELF], ["leave.request", SCOPES.SELF],
-        ["audit.read_own", SCOPES.SELF], ["wellbeing.read_own", SCOPES.SELF]]},
+        ["audit.read_own", SCOPES.SELF], ["wellbeing.read_own", SCOPES.SELF],
+        ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     lead: {label: "Team lead", capabilities: [
         ["time.read_own", SCOPES.SELF], ["timesheet.read", SCOPES.DIRECT_REPORTS], ["timesheet.approve", SCOPES.DIRECT_REPORTS],
         ["leave.request", SCOPES.SELF], ["leave.approve", SCOPES.DIRECT_REPORTS],
         ["person_data.export", SCOPES.DIRECT_REPORTS], ["wellbeing.read_aggregate", SCOPES.DIRECT_REPORTS],
-        ["audit.read_own", SCOPES.SELF], ["wellbeing.read_own", SCOPES.SELF]]},
+        ["audit.read_own", SCOPES.SELF], ["wellbeing.read_own", SCOPES.SELF],
+        ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     hr: {label: "HR", capabilities: [
         ["time.read_own", SCOPES.SELF], ["timesheet.read", SCOPES.ORG], ["timesheet.approve", SCOPES.DIRECT_REPORTS],
         ["time_entry.edit_other", SCOPES.ORG], ["leave.request", SCOPES.SELF], ["leave.approve", SCOPES.DIRECT_REPORTS],
         ["leave_policy.publish", SCOPES.ORG], ["candidate.read", SCOPES.ORG], ["person_data.export", SCOPES.ORG],
         ["wellbeing.read_aggregate", SCOPES.ORG], ["audit.read_own", SCOPES.SELF], ["audit.read_policy", SCOPES.ORG],
-        ["wellbeing.read_own", SCOPES.SELF]]},
+        ["wellbeing.read_own", SCOPES.SELF],
+        ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     admin: {label: "Org admin", capabilities: [
         ["time.read_own", SCOPES.SELF], ["leave.request", SCOPES.SELF], ["role.assign", SCOPES.ORG],
         ["capability.grant", SCOPES.ORG], ["capability.revoke", SCOPES.ORG], ["audit.read_all", SCOPES.ORG],
         ["audit.read_own", SCOPES.SELF], ["person_data.export", SCOPES.ORG], ["user.impersonate", SCOPES.ORG],
-        ["wiki.publish_public", SCOPES.ORG], ["wellbeing.read_own", SCOPES.SELF]]},
+        ["wiki.publish_public", SCOPES.ORG], ["wellbeing.read_own", SCOPES.SELF],
+        ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG], ["task.delete", SCOPES.ORG]]},
     guest: {label: "Guest", capabilities: [["audit.read_own", SCOPES.SELF]]}
 });
 

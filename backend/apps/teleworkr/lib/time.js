@@ -160,6 +160,20 @@ exports.eventsForDayAsync = async function(org_id, person_id, entry_date) {
         [org_id, person_id, entry_date]);
 }
 
+/**
+ * The time log for a task — every entry whose task_ref names it, whatever its
+ * source. This is the D2 time log: projected from the ledger, never duplicated.
+ * @param {string} org_id The org
+ * @param {string} task_ref The task reference, e.g. TASK-1042
+ * @returns The events, oldest first, each carrying its source
+ */
+exports.eventsForTaskAsync = async function(org_id, task_ref) {
+    if (!task_ref) return [];
+    return await dblayer.getQueryOrThrow(
+        `SELECT * FROM time_entry_event WHERE org_id=? AND task_ref=? ORDER BY recorded_at ASC`,
+        [org_id, task_ref]);
+}
+
 /** @returns ISO Monday for the week containing the given ISO date */
 exports.weekStartOf = function(isoDate) {
     _assertISODate(isoDate, "date");
