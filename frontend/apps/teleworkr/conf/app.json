@@ -1,0 +1,24 @@
+{
+    "INSECURE_DEVELOPMENT_MODE": true,
+
+    "TIMEOUT": 600000,
+    "MOBILE_MEDIA_QUERY_START": "<style>@media only screen and (max-width: 959px) {",
+    "MOBILE_MEDIA_QUERY_END": "}</style>",
+    "MOBILE_MEDIA_QUERY_LANDSCAPE_START": "<style>@media only screen and (max-width: 959px) and (orientation: landscape) {",
+    "MOBILE_MEDIA_QUERY_LANDSCAPE_END": "}</style>",
+    "MOBILE_MEDIA_QUERY_PORTRAIT_START": "<style>@media only screen and (max-width: 959px) and (orientation: portrait) {",
+    "MOBILE_MEDIA_QUERY_PORTRAIT_END": "}</style>",
+    "CSS_STYLE_START": "<style>",
+    "CSS_STYLE_END": "</style>",
+    "APP_ABOUT_URL": "https://teleworkr.com/",
+
+    "COMPONENTS": [],
+    "FORCE_LOAD_VIEW": "___org_monkshu_loginapp_force_load_view",
+    "VIEWS_RELATIVE_PATH": "/views",
+    "VIEW_CHOOSER": "chooser",
+    "DEFAULT_VIEW": "home",
+
+    "TKMLOGINAPP_URL": "https://login.tekmonks.com",
+    "TKMLOGINAPP_DISABLE_MFA_KEY": "dma",
+    "TKMLOGINAPP_DISABLE_MFA": false
+}

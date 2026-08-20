@@ -1,0 +1,101 @@
+<!-- 
+(C) 2026 TekMonks. All rights reserved.
+License: See enclosed license.txt file.
+-->
+<style>
+body, html {
+	margin: 0; padding: 0;
+	font-family: sans-serif;
+	background-color: #4fb3ed52;
+	width: 100%;
+	height: 100%;
+}
+
+div#bodydiv {
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+	height: 100%;
+}
+
+div#header {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	justify-content: space-between;
+	height: 4em;
+	padding: 0 2em;
+	box-sizing: border-box;
+}
+div#header img.logo {height: 2.5em; cursor: pointer;}
+
+div#maincontent {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	justify-content: center;
+	flex-grow: 1;
+}
+
+.lgbox {
+	background-color: #ffffff;
+	border-radius: 2em;
+	padding: 2em 4em;
+	text-align: center;
+	color: #4c4c4c;
+}
+.lgbox button {
+	border: none;
+	border-radius: 1em;
+	padding: 1em 2em;
+	cursor: pointer;
+	background-color: #4fb3ed;
+	color: #ffffff;
+}
+
+.langbox {text-align: center; margin-bottom: 1em;}
+.langsel {cursor: pointer; font-size: 11px;}
+</style>
+{{{APP_CONSTANTS.MOBILE_MEDIA_QUERY_START}}}
+	div#maincontent {flex-direction: column;}
+	div#header {flex-direction: column-reverse; height: 6em;}
+	.lgbox {padding: 1em; box-shadow: none;}
+{{{APP_CONSTANTS.MOBILE_MEDIA_QUERY_END}}}
+
+<!doctype html>
+<html>
+<head>
+	<meta charset="UTF-8">
+
+	<link href="./img/favicon.svg" rel="icon" type="image/svg+xml">
+	
+	<title>{{i18n.Title}}</title>
+	
+	<script type="module">
+	import {language} from "./js/language.mjs"; window.language=language;
+	</script>
+</head>
+
+<body>
+<div id="bodydiv">
+<div id="header">
+<span id="imgheader">
+	<img class="logo" src="./img/logo.svg" onclick="window.open(APP_CONSTANTS.APP_ABOUT_URL, '_blank')"></img>
+</span>
+</div>
+
+<div id="maincontent">
+<div class="lgbox">
+	<span><br><br>{{error}}<br><br></span>
+	<button onclick="window.location='{{link}}'">{{button}}</button>
+</div>
+</div>
+
+<div class="langbox">
+	<span class="langsel" onclick="language.changeLanguage('en')">English</span>&nbsp;&nbsp;
+	<span class="langsel" onclick="language.changeLanguage('hi')">हिंदी</span>&nbsp;&nbsp;
+	<span class="langsel" onclick="language.changeLanguage('ja')">日本語</span>
+</div>	
+</div>
+</body>
+</html>

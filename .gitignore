@@ -1,0 +1,17 @@
+backend/server/logs
+frontend/server/logs
+debug.log
+backend/apps/*/logs/remotelog.ndjson
+backend/apps/*/db/sqlite/*.db*
+backend/**/conf/hostname.json
+backend/apps/teleworkr/temp/**/*
+backend/apps/teleworkr/db/teleworkr_db/**/*
+backend/apps/teleworkr/drive/*
+!backend/apps/teleworkr/drive/_do_not_delete_
+backend/apps/teleworkr/cms/*
+!backend/apps/teleworkr/cms/_do_not_delete_
+backend/apps/teleworkr/tests/assets/generated
+.DS_store*
+node_modules
+frontend/apps/teleworkr/webbundle
+frontend/apps/teleworkr/views/custom/**/*

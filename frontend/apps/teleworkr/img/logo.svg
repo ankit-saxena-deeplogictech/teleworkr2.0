@@ -1,0 +1,6 @@
+<!-- Placeholder Teleworkr logo. Replace with the real brand asset. -->
+<svg width="240" height="60" viewBox="0 0 240 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+	<rect x="2" y="2" width="56" height="56" rx="14" fill="#4FB4ED"/>
+	<path d="M18 22h24M30 22v18" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+	<text x="72" y="40" font-family="Red Hat Text, sans-serif" font-size="26" fill="#4c4c4c">Teleworkr</text>
+</svg>

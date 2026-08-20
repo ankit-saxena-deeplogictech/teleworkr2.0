@@ -1,0 +1,4 @@
+[
+    "/* Bootstrap only. Everything else lives in db/migrations and is applied by lib/migrations.js. */",
+    "CREATE TABLE IF NOT EXISTS schema_migration(filename varchar not null primary key, checksum varchar not null, applied_at integer not null)"
+]

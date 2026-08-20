@@ -1,0 +1,32 @@
+{
+    "timeout": 120000,
+    "enableGZIPEncoding": true,
+    "headers": {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, GET",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Expose-Headers": "*",
+        "Access-Control-Max-Age": 86400
+    },
+    "host": "{{{hostname}}}",
+    "ports": [
+        9090,
+        9091
+    ],
+    "ssl": false,
+    "_ssl_note": "Local dev runs plain HTTP. changeHosts.sh sets ssl true and points these at the deployed certificates.",
+    "sslKeyFile": "/etc/letsencrypt/live/CHANGE_ME/privkey.pem",
+    "sslCertFile": "/etc/letsencrypt/live/CHANGE_ME/fullchain.pem",
+    "ipblacklistRefresh": 5000,
+    "ipwhitelistRefresh": 5000,
+    "virtualhosts": [
+        "{{{hostname}}}:9090",
+        "testhost1.app:9090",
+        "testhost2.app:9090",
+        "testhost3.app:9090",
+        "{{{hostname}}}:9091",
+        "testhost1.app:9091",
+        "testhost2.app:9091",
+        "testhost3.app:9091"
+    ]
+}

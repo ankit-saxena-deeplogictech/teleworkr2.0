@@ -1,0 +1,156 @@
+<!-- 
+(C) 2026 TekMonks. All rights reserved.
+-->
+
+<style>
+@import url('./fonts/appfonts.css');
+
+body::-webkit-scrollbar {
+    width: 0.5em !important;
+    height: 0.5em !important;
+    scroll-behavior: smooth !important;
+}
+
+body::-webkit-scrollbar-track {
+    -webkit-box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.3) !important;
+    box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.3) !important;
+    margin: 5em;
+    border-radius: 1em !important;
+}
+
+body::-webkit-scrollbar-thumb {
+    background-color: darkgrey !important;
+    border-radius: 1em !important;
+    background-clip: padding-box;
+}
+
+body, html {
+	margin: 0;
+	padding: 0;
+	font-family: 'Red Hat Text';
+	overflow: overlay;
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+}
+
+span#desktopheader {
+	color: #4FB4ED;
+    user-select: none;
+    overflow: hidden;
+    white-space: nowrap;
+    min-height: 3em;
+	max-height: 3em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    width: calc(100% - 4em);
+    margin: 0.5em 2em 0 2em;
+}
+
+img#textlogo {height: 2.2em !important; cursor: pointer;}
+
+img#home {cursor: pointer;}
+
+dialog-box#dialog {
+	z-index: 51;
+	position: absolute;
+}
+
+span#desktopheader > span#rightheader {
+	height: 100%;
+    display: inline-flex;
+	flex-direction: row;
+    align-items: center;
+	width: 100%;
+    justify-content: space-between;
+	z-index: 50;
+}
+
+span#desktopheader > span#rightheader img { height: 2em; cursor: pointer; }
+span#desktopheader > span#rightheader > span#greeting img { cursor: default !important; }
+
+span#desktopheader > span#rightheader > span#greeting {
+	display: flex;
+    align-items: center;
+}
+span#desktopheader > span#rightheader > span#greeting > span#name {margin-left: 1.5em;}
+
+div#maincontent {
+	background-color: transparent;
+    margin: 0.5em 0em 0em 0em;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+	flex-grow: 1;
+}
+
+span#mobilefooter {
+	width: 100%;
+    height: 4em;
+    background: #4FB4ED;
+	display: none;
+	flex-direction: row;
+	align-items: center;
+    padding: 1em;
+    box-sizing: border-box;
+    justify-content: space-between;
+}
+
+span#mobilefooter > img {
+	width: 2.5em;
+	height: 2.5em;
+}
+</style>
+{{{APP_CONSTANTS.MOBILE_MEDIA_QUERY_START}}}
+	body, html {min-width: 0; min-height: 0;}
+	span#desktopheader {display: none;}
+	span#rightheader {width: 100% !important;}
+	img#textlogo, span#greeting, span#signoff {display: none !important;}
+	div#maincontent {margin: 0;}
+	span#mobilefooter {display: flex;}
+{{{APP_CONSTANTS.MOBILE_MEDIA_QUERY_END}}}
+<!doctype html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<link href="./img/favicon.svg" rel="icon" type="image/svg+xml">
+    <meta name="apple-mobile-web-app-capable" content="yes"/>
+    <meta name="mobile-web-app-capable" content="yes"/>
+    <link rel="apple-touch-icon" href="./img/logo.svg">
+
+	<script type="module">
+	import {main} from "./js/main.mjs"; monkshu_env.apps[APP_CONSTANTS.APP_NAME].main = main; 
+	</script>
+		
+	<title>{{i18n.Title}}</title>
+</head>
+
+<body style="margin: 0%">
+<span id="desktopheader">
+	<span id="rightheader">
+	<img id="textlogo" src="./img/logo.svg" onclick="window.open(APP_CONSTANTS.ABOUT_URL, '_blank')">
+	{{#showhome}}<img id="home" src="./img/home.svg" onclick="monkshu_env.apps[APP_CONSTANTS.APP_NAME].main.gohome()">{{/showhome}}
+	<span id="greeting">
+	<span><img id="person" src="{{#icons_person}}{{{.}}}.svg{{/icons_person}}{{^icons_person}}./img/person.svg{{/icons_person}}"></span>
+	<span id="name">{{i18n.Hi}} {{#_org_monkshu_session}}username{{/_org_monkshu_session}}!</span>
+	</span>
+	{{#showrefresh}}<span id="refresh"><img id="refresh" src="{{#icons_refresh}}{{{.}}}.svg{{/icons_refresh}}{{^icons_refresh}}./img/reload.svg{{/icons_refresh}}" 
+		onclick="location.reload()"></span>{{/showrefresh}}
+	{{#shownotifications}}<span id="notifications"><img src="./img/bell.svg" onclick="monkshu_env.apps[APP_CONSTANTS.APP_NAME].main.showNotifications('{{{action}}}', event)"></span>{{/shownotifications}}
+	<span id="signoff"><img id="logoff" src="./img/poweroff.svg" onclick="monkshu_env.apps[APP_CONSTANTS.APP_NAME].main.logoutClicked()"></span>
+	</span>
+</span>
+
+<div id="maincontent">
+	{{{maincontent}}}
+</div>
+
+<span id="mobilefooter">
+	<img src="./img/mobilefooter_home.svg" onclick="monkshu_env.apps[APP_CONSTANTS.APP_NAME].main.gohome()">
+	{{#showrefresh}}<img src="{{#icons_refresh}}{{{.}}}_mobile.svg{{/icons_refresh}}{{^icons_refresh}}./img/mobilefooter_reload.svg{{/icons_refresh}}" onclick="location.reload()">{{/showrefresh}}
+	{{#shownotifications}}<img class="headerimg" src="./img/mobilefooter_bell.svg" onclick="monkshu_env.apps[APP_CONSTANTS.APP_NAME].main.showNotifications('{{{action}}}', event, true)">{{/shownotifications}}
+	<img src="./img/mobilefooter_logout.svg" onclick="monkshu_env.apps[APP_CONSTANTS.APP_NAME].main.logoutClicked()">
+</span>
+</body>
+</html>

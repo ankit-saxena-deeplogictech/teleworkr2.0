@@ -1,0 +1,13 @@
+{
+"tkmlogin_api": "https://login.tekmonks.com:8443/apps/loginapp/validatejwt",
+"crypt_key": "__CHANGE_ME_TELEWORKR_CRYPT_KEY__",
+"debug_mode": true,
+"multithreaded": false,
+"verbose_log": false,
+"db_server_host": "",
+"_db_server_host_note": "Empty means a local SQLite file. Set to sqlite://host[,host] to use the networked SQLite driver.",
+"fastcache_timeout": 10000,
+"cluster_size": 2,
+"apicache_expiry": 600000,
+"temp_dir": "{{{APPROOT}}}/temp"
+}

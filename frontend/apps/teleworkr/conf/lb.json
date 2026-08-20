@@ -1,0 +1,11 @@
+{
+    "backends": {
+        "endpoints": ["testhost1.app", "testhost2.app"],
+        "balancing_algorithm": "roundrobin"
+    },
+
+    "frontends": {
+        "endpoints": ["testhost3.app", "testhost2.app"],
+        "balancing_algorithm": "roundrobin"
+    }
+}

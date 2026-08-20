@@ -1,0 +1,4 @@
+{
+    "tkmlogin_api": "https://login.tekmonks.com:8443/apps/loginapp/validatejwt",
+    "db_server_host": "sqlite://{{{hostname}}}"
+}

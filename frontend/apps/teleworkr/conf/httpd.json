@@ -1,0 +1,38 @@
+{
+    "extensions": [
+        "redirect",
+        "httpverbs"
+    ],
+    "redirects": [
+        {
+            "^http(.*)://([^/]+?)/index.html$": "http{{{$1}}}://{{{$2}}}/apps/{{{app}}}/index.html"
+        },
+        {
+            "^http(.*)://([^/]+?)/$": "http{{{$1}}}://{{{$2}}}/apps/{{{app}}}/index.html"
+        },
+        {
+            "^http(.*)://([^/]+?)$": "http{{{$1}}}://{{{$2}}}/apps/{{{app}}}/index.html"
+        }
+    ],
+    "diskCache": {
+        "refresh": 10000,
+        "dontCache": [
+            ".*\\.pdf"
+        ],
+        "maxSizeInMB": "1024",
+        "ignoreAfterMaxHits": 10
+    },
+    "httpdHeaders": {
+        "Cache-Control": "no-cache",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Methods": "HEAD,GET",
+        "Service-Worker-Allowed": "/"
+    },
+    "ssl": false,
+    "_ssl_note": "Local dev runs plain HTTP. changeHosts.sh sets ssl true and points these at the deployed certificates.",
+    "sslKeyFile": "/etc/letsencrypt/live/CHANGE_ME/privkey.pem",
+    "sslCertFile": "/etc/letsencrypt/live/CHANGE_ME/fullchain.pem",
+    "port": 8080,
+    "host": "{{{hostname}}}"
+}
