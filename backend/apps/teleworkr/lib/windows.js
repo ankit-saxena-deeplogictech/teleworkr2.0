@@ -293,6 +293,34 @@ exports.availabilityForDateAsync = async function(org_id, person_id, date) {
     return {window, workday, reason: workday ? null : "off_day"};
 }
 
+/**
+ * The A9 send-window engine: is this instant inside the person's declared
+ * working window? Only two notification categories may breach a "no".
+ *
+ * @param {string} org_id The org
+ * @param {string} person_id The person
+ * @param {number} epochSeconds Unix seconds; defaults to now
+ * @returns {object} {within, reason, local_minute, window}
+ */
+exports.withinWindowAtAsync = async function(org_id, person_id, epochSeconds) {
+    const at = epochSeconds === undefined ? Math.floor(Date.now()/1000) : epochSeconds;
+    const dateISO = new Date(at*1000).toISOString().substring(0, 10);
+    const availability = await exports.availabilityForDateAsync(org_id, person_id, dateISO);
+    if (!availability.window || !availability.workday)
+        return {within: false, reason: availability.reason, local_minute: null, window: null};
+
+    const window = availability.window;
+    const offset = _offsetMinutesAt(dateISO, window.timezone);   // west-positive: UTC−local
+    const utcMinutes = (at % (MINUTES_IN_DAY*60)) / 60;
+    const local = ((utcMinutes - offset) % MINUTES_IN_DAY + MINUTES_IN_DAY) % MINUTES_IN_DAY;
+    const end = window.end_minute <= window.start_minute ?
+        window.end_minute + MINUTES_IN_DAY : window.end_minute;
+    const within = window.start_minute <= local && local < end;
+    return {within, reason: within ? null : "outside_window", local_minute: Math.round(local),
+        window: {window_id: window.window_id, timezone: window.timezone,
+            start_minute: window.start_minute, end_minute: window.end_minute, kind: window.kind}};
+}
+
 // ---------------------------------------------------------------------------
 // the overlap projection
 // ---------------------------------------------------------------------------

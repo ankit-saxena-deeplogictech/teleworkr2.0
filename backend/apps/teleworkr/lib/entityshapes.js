@@ -90,6 +90,10 @@ const REGISTER = Object.freeze({
         note: "Stamped with the policy version that produced it. Balance is projected over this, never stored."},
     leave_run: {shape: SHAPES.MUTABLE, erasure: ERASURE.PSEUDONYMISE, keep: "7y", anchor: ANCHORS.NONE,
         note: "A scheduled run's record — previewable before it executes, batch-tagged and reversible after."},
+    notification: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.ERASE, keep: "90d", anchor: ANCHORS.NONE,
+        note: "The A9 spine's history: catalogue-gated, window-routed, with the recipient's volume applied."},
+    notification_setting: {shape: SHAPES.MUTABLE, erasure: ERASURE.ERASE, keep: null, anchor: ANCHORS.NONE,
+        note: "The recipient's volume control, per catalogue category — never per module."},
 
     // --- work and knowledge ---
     task: {shape: SHAPES.MUTABLE, erasure: ERASURE.ERASE, keep: null, anchor: ANCHORS.NONE,
