@@ -143,6 +143,8 @@ function _validatePolicy(policy) {
                 `Leave type ${type.code} references ${reference}, which is not a declared type (J2 validator).`);
     }
     if (!policy.scope?.jurisdiction) throw new Error("A policy needs a scope with a jurisdiction.");
+    if (policy.escalation_after_days !== undefined && !(policy.escalation_after_days > 0))
+        throw new Error("escalation_after_days must be a positive number of days (J5).");
     return policy;
 }
 
@@ -608,6 +610,253 @@ async function _overlappingRequestsAsync(org_id, person_id, fromISO, toISO) {
         `SELECT * FROM leave_request WHERE org_id=? AND person_id=? AND status IN ('pending','approved')
             AND from_date <= ? AND to_date >= ?`,
         [org_id, person_id, toISO, fromISO]);
+}
+
+// ---------------------------------------------------------------------------
+// approvals — routing is policy data (J5)
+// ---------------------------------------------------------------------------
+
+const DEFAULT_ESCALATION_DAYS = 3;
+
+/** The sequential approval steps — hr_informed is a notification, not a step. */
+function _approvalSteps(route) {
+    return route.filter(token => token != "hr_informed");
+}
+
+/** Does this step token accept this actor? manager is the person's manager as of the request. */
+function _stepAccepts(token, actor, managerPersonId, isOrgApprover) {
+    switch (token) {
+        case "manager": return Boolean(managerPersonId) && managerPersonId == actor;
+        case "hr":
+        case "management_review": return isOrgApprover;
+        case "manager_or_hr":
+            return (Boolean(managerPersonId) && managerPersonId == actor) || isOrgApprover;
+        default: return false;
+    }
+}
+
+async function _isOrgApproverAsync(org_id, actor_person_id, subject_person_id) {
+    const decision = await permissions.checkAsync({org_id, actor_person_id,
+        capability: "leave.approve", subject_person_id});
+    if (decision.allowed) return decision.matched_grant?.scope_type == "org";
+    // Engine-blocked (for example sod.self_approval) still means org-scoped: the
+    // block must surface as the decision error from the permission check inside
+    // the approval, not be laundered into a routing refusal.
+    return decision.outcome == "blocked_by_rule";
+}
+
+async function _getRequestAsync(org_id, leave_request_id) {
+    const rows = await dblayer.getQueryOrThrow(
+        "SELECT * FROM leave_request WHERE org_id=? AND leave_request_id=?", [org_id, leave_request_id]);
+    return rows.length ? rows[0] : null;
+}
+
+/** The routing context for a pending request: steps, current token, manager and org-approver flag. */
+async function _approvalContextAsync(request, actor_person_id) {
+    const versionRows = await dblayer.getQueryOrThrow(
+        "SELECT * FROM leave_policy_version WHERE policy_version_id=?", [request.policy_version_id]);
+    const policy = JSON.parse(versionRows[0].policy);
+    const type = policy.leave_types.find(entry => entry.code == request.leave_type);
+    const steps = _approvalSteps(type.approval_route);
+    const token = steps[request.approval_step];
+    const manager = await spine.managerAsOfAsync(request.org_id, request.person_id, request.from_date);
+    const isOrgApprover = actor_person_id ?
+        await _isOrgApproverAsync(request.org_id, actor_person_id, request.person_id) : false;
+    const evaluation = JSON.parse(request.evaluation);
+    return {policy, type, steps, token, manager, isOrgApprover, evaluation};
+}
+
+/**
+ * Approves the request's current step. On a multi-step route the request stays
+ * pending and advances; on the final step it becomes approved and the deduction
+ * is written to the ledger — stamped with the policy version pinned at
+ * evaluation. The approval is an audit signature; the write and the audit entry
+ * commit together.
+ *
+ * A short-notice request needs the explicit exception flag — the policy requires
+ * the manager to record it (J5), so the API refuses a silent approval.
+ *
+ * @param {object} request {org_id, actor_person_id, leave_request_id, approve_as_exception}
+ * @returns {object} {result, balance_after}
+ */
+exports.approveLeaveRequestAsync = async function(request) {
+    const pending = await _getRequestAsync(request.org_id, request.leave_request_id);
+    if (!pending || pending.status != REQUEST_STATUS.PENDING) throw new Error(
+        `Leave request ${request.leave_request_id} is not awaiting approval.`);
+    const {steps, token, manager, isOrgApprover, evaluation} = await _approvalContextAsync(pending, request.actor_person_id);
+
+    if (!_stepAccepts(token, request.actor_person_id, manager, isOrgApprover)) throw new Error(
+        `You are not the approver for this step (${token}). ${token == "manager" ?
+            "The approver is the person's manager of record." : "This step needs an org-scoped leave approver (HR or org admin)."}`);
+    const shortNotice = evaluation.warnings.some(warning => warning.rule == "notice");
+    if (token == "manager" && shortNotice && request.approve_as_exception !== true) throw new Error(
+        "This request is short notice. The policy allows a manager-approved exception — approve it explicitly with approve_as_exception.");
+
+    const isFinal = pending.approval_step + 1 >= steps.length;
+    const result = await audit.performAsync({
+        org_id: request.org_id, actor_person_id: request.actor_person_id,
+        capability: "leave.approve", subject_person_id: pending.person_id,
+        audit: {action: "leave.approved", object_type: "leave_request", object_ref: pending.leave_request_id,
+            subject_person_id: pending.person_id,
+            detail: {leave_type: pending.leave_type, from_date: pending.from_date, to_date: pending.to_date,
+                days_deducted: pending.days_deducted, step: token, step_index: pending.approval_step,
+                final: isFinal, short_notice_exception: request.approve_as_exception === true}},
+        action: async exec => {
+            const rows = await exec.getQuery(
+                "SELECT * FROM leave_request WHERE leave_request_id=?", [pending.leave_request_id]);
+            if (!rows.length || rows[0].status != REQUEST_STATUS.PENDING ||
+                rows[0].approval_step != pending.approval_step) throw new Error(
+                "The request moved while this approval was in flight. Refresh and try again.");
+
+            const exceptions = JSON.parse(rows[0].approval_exceptions || "[]");
+            if (request.approve_as_exception === true && !exceptions.includes("short_notice"))
+                exceptions.push("short_notice");
+            const exceptionsJSON = JSON.stringify(exceptions);
+
+            if (isFinal) {
+                await exec.runCmd(`UPDATE leave_request SET status='approved', decided_by=?, decided_at=?,
+                    approval_exceptions=? WHERE leave_request_id=?`,
+                    [request.actor_person_id, _now(), exceptionsJSON, pending.leave_request_id]);
+                await exec.runCmd(`INSERT INTO leave_ledger_entry (leave_ledger_entry_id, org_id, person_id,
+                    leave_type, days, kind, entry_date, policy_version_id, reason, source_request_id,
+                    recorded_at, recorded_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+                    [serverutils.generateUUID(false), pending.org_id, pending.person_id, pending.leave_type,
+                        -pending.days_deducted, "deduction", pending.from_date, pending.policy_version_id,
+                        "approved", pending.leave_request_id, _now(), request.actor_person_id]);
+                return "approved";
+            }
+            await exec.runCmd(`UPDATE leave_request SET approval_step=approval_step+1, decided_by=?,
+                decided_at=?, approval_exceptions=? WHERE leave_request_id=?`,
+                [request.actor_person_id, _now(), exceptionsJSON, pending.leave_request_id]);
+            return "partial";
+        }});
+
+    const balanceAfter = isFinal ? await exports.balanceAsync({org_id: request.org_id,
+        person_id: pending.person_id, leave_type: pending.leave_type, asOf: pending.from_date}) : null;
+    return {result, step: token, final: isFinal, balance_after: balanceAfter};
+}
+
+/**
+ * Declines a request, with a reason — every decline names why, and the reason
+ * is kept on the record (J3 note 5). Audited like an approval.
+ * @param {object} request {org_id, actor_person_id, leave_request_id, reason}
+ */
+exports.declineLeaveRequestAsync = async function(request) {
+    if (!request.reason?.trim()) throw new Error(
+        "A decline names the reason. A silent decline teaches people to stop asking (J3).");
+    const pending = await _getRequestAsync(request.org_id, request.leave_request_id);
+    if (!pending || pending.status != REQUEST_STATUS.PENDING) throw new Error(
+        `Leave request ${request.leave_request_id} is not awaiting approval.`);
+    const {steps, token, manager, isOrgApprover} = await _approvalContextAsync(pending, request.actor_person_id);
+    if (!_stepAccepts(token, request.actor_person_id, manager, isOrgApprover)) throw new Error(
+        `You are not the approver for this step (${token}).`);
+
+    return await audit.performAsync({
+        org_id: request.org_id, actor_person_id: request.actor_person_id,
+        capability: "leave.approve", subject_person_id: pending.person_id,
+        audit: {action: "leave.declined", object_type: "leave_request", object_ref: pending.leave_request_id,
+            subject_person_id: pending.person_id, reason: request.reason,
+            detail: {leave_type: pending.leave_type, from_date: pending.from_date, step: token}},
+        action: async exec => {
+            await exec.runCmd(`UPDATE leave_request SET status='declined', decided_by=?, decided_at=?,
+                decision_reason=? WHERE leave_request_id=?`,
+                [request.actor_person_id, _now(), request.reason, pending.leave_request_id]);
+            return "declined";
+        }});
+}
+
+/**
+ * Cancels the person's own request. A pending request simply closes; an
+ * approved one writes a reversal entry that returns the days — a cancellation
+ * is a reversal, never an edit (J5 note 7).
+ * @param {object} request {org_id, person_id, leave_request_id}
+ */
+exports.cancelLeaveRequestAsync = async function(request) {
+    const own = await _getRequestAsync(request.org_id, request.leave_request_id);
+    if (!own || own.person_id != request.person_id) throw new Error(
+        `Leave request ${request.leave_request_id} was not found, or it is not yours.`);
+    if (![REQUEST_STATUS.PENDING, REQUEST_STATUS.APPROVED].includes(own.status)) throw new Error(
+        `A ${own.status} request cannot be cancelled.`);
+
+    return await dblayer.runInTransactionAsync(async exec => {
+        let reversalDays = 0;
+        if (own.status == REQUEST_STATUS.APPROVED) {
+            reversalDays = own.days_deducted;
+            await exec.runCmd(`INSERT INTO leave_ledger_entry (leave_ledger_entry_id, org_id, person_id,
+                leave_type, days, kind, entry_date, policy_version_id, reason, source_request_id,
+                recorded_at, recorded_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+                [serverutils.generateUUID(false), own.org_id, own.person_id, own.leave_type,
+                    own.days_deducted, "reversal", own.from_date, own.policy_version_id,
+                    "cancelled before start", own.leave_request_id, _now(), request.person_id]);
+        }
+        await exec.runCmd("UPDATE leave_request SET status='cancelled', decided_at=? WHERE leave_request_id=?",
+            [_now(), own.leave_request_id]);
+        await audit.insertEntryViaAsync(exec, {org_id: request.org_id, action: "leave.cancelled",
+            object_type: "leave_request", object_ref: own.leave_request_id,
+            actor_person_id: request.person_id, subject_person_id: request.person_id,
+            detail: {reversed_days: reversalDays}},
+            await permissions.effectivePermissionsAsync(request.org_id, request.person_id, _today(), exec));
+        return {status: "cancelled", reversed_days: reversalDays};
+    });
+}
+
+/**
+ * The approvals queue for a person — every pending request whose current step
+ * accepts them, with the context that decides it: balance after approval,
+ * quarter usage, the short-notice flag, and whether proof was provided.
+ * Documents themselves never appear here — approvers see that a certificate
+ * exists, not the certificate (J5 note 8).
+ * @param {object} request {org_id, actor_person_id}
+ */
+exports.pendingApprovalsForAsync = async function(request) {
+    const pending = await dblayer.getQueryOrThrow(
+        "SELECT * FROM leave_request WHERE org_id=? AND status='pending' ORDER BY submitted_at ASC",
+        [request.org_id]);
+    const queue = [];
+    for (const leaveRequest of pending) {
+        const {steps, token, manager, isOrgApprover, evaluation} = await _approvalContextAsync(leaveRequest, request.actor_person_id);
+        if (!_stepAccepts(token, request.actor_person_id, manager, isOrgApprover)) continue;
+        const balanceAfter = await exports.balanceAsync({org_id: request.org_id,
+            person_id: leaveRequest.person_id, leave_type: leaveRequest.leave_type, asOf: _today()});
+        const fields = leaveRequest.fields ? JSON.parse(leaveRequest.fields) : {};
+        queue.push({leave_request_id: leaveRequest.leave_request_id, person_id: leaveRequest.person_id,
+            leave_type: leaveRequest.leave_type, from_date: leaveRequest.from_date,
+            to_date: leaveRequest.to_date, days_deducted: leaveRequest.days_deducted,
+            step: token, step_index: leaveRequest.approval_step, steps: steps.length,
+            balance_after: balanceAfter.available,
+            short_notice: evaluation.warnings.some(warning => warning.rule == "notice"),
+            proof_provided: Boolean(fields.proof || fields.medical_certificate),
+            reason: leaveRequest.reason, submitted_at: leaveRequest.submitted_at});
+    }
+    return queue;
+}
+
+/**
+ * Requests that have sat unanswered past the policy's escalation window. The
+ * list names how long each has waited and where it should go next — nothing
+ * sits unanswered (J5 note 6).
+ * @param {string} org_id The org
+ */
+exports.escalationsDueAsync = async function(org_id) {
+    const pending = await dblayer.getQueryOrThrow(
+        "SELECT * FROM leave_request WHERE org_id=? AND status='pending' ORDER BY submitted_at ASC", [org_id]);
+    const due = [];
+    for (const leaveRequest of pending) {
+        const versionRows = await dblayer.getQueryOrThrow(
+            "SELECT * FROM leave_policy_version WHERE policy_version_id=?", [leaveRequest.policy_version_id]);
+        const policy = JSON.parse(versionRows[0].policy);
+        const windowDays = policy.escalation_after_days || DEFAULT_ESCALATION_DAYS;
+        const waitingDays = Math.floor((_now() - leaveRequest.submitted_at)/86400);
+        if (waitingDays < windowDays) continue;
+        const {token, manager} = await _approvalContextAsync(leaveRequest, null);
+        let routeTo = null;
+        if (token == "manager" && manager)
+            routeTo = await spine.managerAsOfAsync(org_id, manager, _today());
+        due.push({leave_request_id: leaveRequest.leave_request_id, person_id: leaveRequest.person_id,
+            leave_type: leaveRequest.leave_type, waiting_days: waitingDays, window_days: windowDays,
+            stalled_at_step: token, route_to: routeTo});
+    }
+    return due;
 }
 
 exports.REQUEST_STATUS = REQUEST_STATUS;

@@ -52,6 +52,33 @@ exports.doService = async jsonReq => {
                 const requests = await leave.requestsForPersonAsync(jsonReq.org, actor.person_id);
                 return {...CONSTANTS.TRUE_RESULT, requests};
             }
+            case "approve": {
+                const approved = await leave.approveLeaveRequestAsync({org_id: jsonReq.org,
+                    actor_person_id: actor.person_id, leave_request_id: jsonReq.leave_request_id,
+                    approve_as_exception: jsonReq.approve_as_exception === true});
+                return {...CONSTANTS.TRUE_RESULT, result: approved.result, step: approved.step,
+                    final: approved.final, balance_after: approved.balance_after};
+            }
+            case "decline": {
+                const declined = await leave.declineLeaveRequestAsync({org_id: jsonReq.org,
+                    actor_person_id: actor.person_id, leave_request_id: jsonReq.leave_request_id,
+                    reason: jsonReq.reason});
+                return {...CONSTANTS.TRUE_RESULT, result: declined};
+            }
+            case "cancel": {
+                const cancelled = await leave.cancelLeaveRequestAsync({org_id: jsonReq.org,
+                    person_id: actor.person_id, leave_request_id: jsonReq.leave_request_id});
+                return {...CONSTANTS.TRUE_RESULT, ...cancelled};
+            }
+            case "pending": {
+                const queue = await leave.pendingApprovalsForAsync({org_id: jsonReq.org,
+                    actor_person_id: actor.person_id});
+                return {...CONSTANTS.TRUE_RESULT, queue};
+            }
+            case "escalations": {
+                const due = await leave.escalationsDueAsync(jsonReq.org);
+                return {...CONSTANTS.TRUE_RESULT, escalations: due};
+            }
             default: return CONSTANTS.FALSE_RESULT;
         }
     } catch (err) {
@@ -67,5 +94,6 @@ const _actorAsync = async jsonReq => {
     return person;
 }
 
-const validateRequest = jsonReq => jsonReq && ["publish", "evaluate", "request", "balance", "requests"]
-    .includes(jsonReq.op) && jsonReq.id && jsonReq.org;
+const validateRequest = jsonReq => jsonReq &&
+    ["publish", "evaluate", "request", "balance", "requests", "approve", "decline", "cancel", "pending", "escalations"]
+        .includes(jsonReq.op) && jsonReq.id && jsonReq.org;

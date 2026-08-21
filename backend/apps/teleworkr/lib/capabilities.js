@@ -120,7 +120,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     hr: {label: "HR", capabilities: [
         ["time.read_own", SCOPES.SELF], ["timesheet.read", SCOPES.ORG], ["timesheet.approve", SCOPES.DIRECT_REPORTS],
-        ["time_entry.edit_other", SCOPES.ORG], ["leave.request", SCOPES.SELF], ["leave.approve", SCOPES.DIRECT_REPORTS],
+        ["time_entry.edit_other", SCOPES.ORG], ["leave.request", SCOPES.SELF], ["leave.approve", SCOPES.ORG],
         ["leave_policy.publish", SCOPES.ORG], ["candidate.read", SCOPES.ORG], ["person_data.export", SCOPES.ORG],
         ["wellbeing.read_aggregate", SCOPES.ORG], ["audit.read_own", SCOPES.SELF], ["audit.read_policy", SCOPES.ORG],
         ["wellbeing.read_own", SCOPES.SELF],
@@ -131,7 +131,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["audit.read_own", SCOPES.SELF], ["person_data.export", SCOPES.ORG], ["user.impersonate", SCOPES.ORG],
         ["wiki.publish_public", SCOPES.ORG], ["wellbeing.read_own", SCOPES.SELF],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG], ["task.delete", SCOPES.ORG],
-        ["people.import", SCOPES.ORG]]},
+        ["people.import", SCOPES.ORG], ["leave.approve", SCOPES.ORG]]},
     guest: {label: "Guest", capabilities: [["audit.read_own", SCOPES.SELF]]}
 });
 
