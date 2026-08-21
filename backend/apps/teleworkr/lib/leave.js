@@ -860,3 +860,26 @@ exports.escalationsDueAsync = async function(org_id) {
 }
 
 exports.REQUEST_STATUS = REQUEST_STATUS;
+
+/**
+ * The approved-leave facts in force over a date range — J6's single source for
+ * "is this person on leave on this date". Only approved requests are facts:
+ * pending and declined requests are not yet, and a cancelled one stops being
+ * one (its reversal is what the ledger says).
+ *
+ * @param {string} org_id The org
+ * @param {array} person_ids The people
+ * @param {string} from_date ISO date, inclusive
+ * @param {string} to_date ISO date, inclusive
+ * @returns {array} [{leave_request_id, person_id, leave_type, from_date, to_date, days_deducted}]
+ */
+exports.approvedLeaveForAsync = async function(org_id, person_ids, from_date, to_date) {
+    if (!Array.isArray(person_ids) || !person_ids.length) return [];
+    const placeholders = person_ids.map(_ => "?").join(",");
+    return await dblayer.getQueryOrThrow(
+        `SELECT leave_request_id, person_id, leave_type, from_date, to_date, days_deducted
+            FROM leave_request WHERE org_id=? AND status='approved' AND from_date <= ?
+                AND to_date >= ? AND person_id IN (${placeholders})
+            ORDER BY from_date ASC, submitted_at ASC`,
+        [org_id, to_date, from_date, ...person_ids]);
+}

@@ -305,14 +305,22 @@ exports.availabilityForDateAsync = async function(org_id, person_id, date) {
  * @param {string} org_id The org
  * @param {array} person_ids The people
  * @param {string} date ISO date
- * @returns {object} {shared_minutes, span, per_person, undeclared, off_day}
+ * @param {object} options {unavailable: [{person_id, reason}]} — callers name
+ *      people who are not working that day (for example approved leave) without
+ *      this module knowing what leave is. Named, excluded from the shared span.
+ * @returns {object} {shared_minutes, span, per_person, undeclared, off_day, unavailable}
  */
-exports.overlapForDateAsync = async function(org_id, person_ids, date) {
+exports.overlapForDateAsync = async function(org_id, person_ids, date, options={}) {
     _assertISODate(date);
-    const per_person = [], undeclared = [], off_day = [];
+    const unavailableBy = new Map((options.unavailable || []).map(absence => [absence.person_id, absence]));
+    const per_person = [], undeclared = [], off_day = [], unavailable = [];
     let sharedFrom = null, sharedTo = null;
 
     for (const person_id of person_ids) {
+        const absence = unavailableBy.get(person_id);
+        if (absence) {unavailable.push({...absence, person_id});
+            per_person.push({person_id, workday: false, reason: absence.reason || "unavailable"}); continue;}
+
         const availability = await exports.availabilityForDateAsync(org_id, person_id, date);
         if (!availability.window) {undeclared.push(person_id);
             per_person.push({person_id, workday: false, reason: "undeclared"}); continue;}
@@ -331,7 +339,7 @@ exports.overlapForDateAsync = async function(org_id, person_ids, date) {
 
     const sharedMinutes = (sharedFrom !== null && sharedTo > sharedFrom) ? sharedTo - sharedFrom : 0;
     return {shared_minutes: sharedMinutes, span: sharedMinutes ? {from: sharedFrom, to: sharedTo} : null,
-        per_person, undeclared, off_day};
+        per_person, undeclared, off_day, unavailable};
 }
 
 /**
@@ -342,10 +350,11 @@ exports.overlapForDateAsync = async function(org_id, person_ids, date) {
  * @param {string} org_id The org
  * @param {array} person_ids The people
  * @param {string} date ISO date
- * @returns {object} {shared_minutes, span, zero_overlap_pairs, undeclared, off_day}
+ * @param {object} options Passed to overlapForDateAsync ({unavailable: ...})
+ * @returns {object} {shared_minutes, span, zero_overlap_pairs, undeclared, off_day, unavailable}
  */
-exports.teamOverlapAsync = async function(org_id, person_ids, date) {
-    const projected = await exports.overlapForDateAsync(org_id, person_ids, date);
+exports.teamOverlapAsync = async function(org_id, person_ids, date, options) {
+    const projected = await exports.overlapForDateAsync(org_id, person_ids, date, options);
     const available = projected.per_person.filter(p => p.workday);
     const zeroOverlapPairs = [];
     for (let i = 0; i < available.length; i++) for (let j = i+1; j < available.length; j++) {
