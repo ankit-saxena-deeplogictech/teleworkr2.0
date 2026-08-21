@@ -8,6 +8,7 @@ export const i18n = {
 "Timeout_Error": "निष्क्रियता के कारण आपको लॉग आउट कर दिया गया है",
 "Relogin": "यहाँ पुनः लॉगिन करें",
 
+"CommandBarHint": "खोजें या कमांड टाइप करें",
 "Hi": "नमस्ते",
 "ChooseActivity": "गतिविधि चुनें",
 

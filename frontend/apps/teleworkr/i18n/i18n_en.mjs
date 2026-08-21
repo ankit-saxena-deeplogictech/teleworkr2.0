@@ -8,6 +8,7 @@ export const i18n = {
 "Timeout_Error": "You have been logged out due to inactivity",
 "Relogin": "Relogin here",
 
+"CommandBarHint": "Search or type a command",
 "Hi": "Hi",
 "ChooseActivity": "Choose Activity",
 

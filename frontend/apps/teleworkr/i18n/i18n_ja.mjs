@@ -8,6 +8,7 @@ export const i18n = {
 "Timeout_Error": "非アクティブのためログアウトされました",
 "Relogin": "ここから再ログイン",
 
+"CommandBarHint": "検索またはコマンドを入力",
 "Hi": "こんにちは",
 "ChooseActivity": "アクティビティを選択",
 

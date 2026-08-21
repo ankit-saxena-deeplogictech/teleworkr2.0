@@ -1,0 +1,114 @@
+/*
+ * The TeleWorkr token layer, carried from teleworkr-hifi-v1.6.
+ *
+ * Brand colour is held separately from status colour. --brand drives identity
+ * only: mark, primary action, active nav, focus. The status hues never carry
+ * brand meaning, so the palette can be retuned to official Tekmonks values
+ * without touching a single component.
+ *
+ * (C) 2026 TekMonks. All rights reserved.
+ */
+
+:root {
+    /* type */
+    --f-display: "Space Grotesk", "Red Hat Text", system-ui, sans-serif;
+    --f-body: "Instrument Sans", "Red Hat Text", system-ui, sans-serif;
+    --f-data: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    /* brand — identity only */
+    --brand: #1B6FE0;
+    --brand-2: #00C2D1;
+    --brand-ink: #071A33;
+
+    /* status accents — functional, never brand */
+    --dawn: #FFB25C;    /* your window · live · now */
+    --mint: #3FD9B4;    /* in sync · healthy · approved */
+    --iris: #8093FF;    /* information · links · focus */
+    --ember: #FF7A6B;   /* breach · blocked · irreversible */
+    --plum: #C58BFF;    /* wellbeing signals */
+
+    --r-xs: 6px; --r-sm: 9px; --r-md: 12px; --r-lg: 16px; --r-xl: 22px;
+    --rail: 66px; --nav: 224px; --hdr: 56px;
+    --ease: cubic-bezier(.22,.9,.3,1);
+}
+
+/* Night is the default surface. Both themes are defined explicitly so nothing
+   inherits a colour from the host page. */
+:root, :root[data-theme="night"] {
+    --void: #070A11; --canvas: #0C1120; --panel: #131B2E; --raise: #1A2438; --hover: #202B44;
+    --stroke: #212C45; --stroke-2: #2E3B59;
+    --t1: #EAEFF9; --t2: #9CAAC4; --t3: #7C8AA8;
+    --dawn-w: rgba(255,178,92,.13); --mint-w: rgba(63,217,180,.12);
+    --iris-w: rgba(128,147,255,.13); --ember-w: rgba(255,122,107,.12); --plum-w: rgba(197,139,255,.13);
+    --brand-w: rgba(27,111,224,.20);
+    --sheen: inset 0 1px 0 rgba(255,255,255,.035);
+    --drop: 0 18px 44px -14px rgba(0,0,0,.72);
+    --night-a: #0B1226; --night-b: #16203C; --day-a: #2C4468; --day-b: #3E5C86;
+}
+
+:root[data-theme="day"] {
+    --void: #EEF1F7; --canvas: #F6F8FC; --panel: #FFFFFF; --raise: #F2F5FA; --hover: #E9EEF7;
+    --stroke: #DDE3EE; --stroke-2: #C6D0E2;
+    --t1: #111827; --t2: #54617A; --t3: #67748F;
+    --dawn: #A2610B; --mint: #0F8469; --iris: #4353CE; --ember: #C0402F; --plum: #7E3AC2;
+    --dawn-w: rgba(199,122,21,.10); --mint-w: rgba(18,150,122,.10);
+    --iris-w: rgba(67,83,206,.09); --ember-w: rgba(192,64,47,.09); --plum-w: rgba(126,58,194,.09);
+    --brand-w: rgba(27,111,224,.11);
+    --sheen: inset 0 1px 0 rgba(255,255,255,.8);
+    --drop: 0 14px 34px -14px rgba(23,38,74,.22);
+    --night-a: #C9D4E8; --night-b: #AEBFDC; --day-a: #8FB2E0; --day-b: #B9D4F2;
+}
+
+/* Someone who has expressed no preference in-product gets their system's. */
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="night"]) {
+        --void: #EEF1F7; --canvas: #F6F8FC; --panel: #FFFFFF; --raise: #F2F5FA; --hover: #E9EEF7;
+        --stroke: #DDE3EE; --stroke-2: #C6D0E2;
+        --t1: #111827; --t2: #54617A; --t3: #67748F;
+        --dawn: #A2610B; --mint: #0F8469; --iris: #4353CE; --ember: #C0402F; --plum: #7E3AC2;
+        --dawn-w: rgba(199,122,21,.10); --mint-w: rgba(18,150,122,.10);
+        --iris-w: rgba(67,83,206,.09); --ember-w: rgba(192,64,47,.09); --plum-w: rgba(126,58,194,.09);
+        --brand-w: rgba(27,111,224,.11);
+        --sheen: inset 0 1px 0 rgba(255,255,255,.8);
+        --drop: 0 14px 34px -14px rgba(23,38,74,.22);
+        --night-a: #C9D4E8; --night-b: #AEBFDC; --day-a: #8FB2E0; --day-b: #B9D4F2;
+    }
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after {animation: none !important; transition: none !important;} html {scroll-behavior: auto;} }
+
+body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--t1);
+    font-family: var(--f-body);
+    font-size: 13.5px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--iris); color: #fff; }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 4px; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+a { color: var(--iris); text-decoration: none; }
+h1, h2, h3, h4 { font-family: var(--f-display); margin: 0; font-weight: 600; letter-spacing: -.01em; }
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--stroke-2); border-radius: 9px; }
+::-webkit-scrollbar-thumb:hover { background: var(--t3); }
+
+/* utility */
+.mono { font-family: var(--f-data); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.disp { font-family: var(--f-display); }
+.t2 { color: var(--t2); } .t3 { color: var(--t3); }
+.xs { font-size: 11px; } .sm { font-size: 12px; }
+.up { text-transform: uppercase; letter-spacing: .11em; font-size: 10px; font-weight: 600; font-family: var(--f-display); }
+.row { display: flex; align-items: center; gap: 10px; }
+.col { display: flex; flex-direction: column; }
+.wrap { flex-wrap: wrap; }
+.push { margin-left: auto; }
+.grow { flex: 1; min-width: 0; }
+.hidden { display: none !important; }

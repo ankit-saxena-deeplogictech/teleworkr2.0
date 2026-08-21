@@ -1,0 +1,138 @@
+/*
+ * A2 — the frozen shell. One header, built once, used by every screen.
+ *
+ * Anything a screen needs that is not here has to be argued for. The header
+ * carries: the command bar, the persistent clock, the notification count, the
+ * date and week total, the status control, the overlap chip, and the system
+ * banner slot. Local filters stay inside their screens.
+ *
+ * (C) 2026 TekMonks. All rights reserved.
+ */
+
+.app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: var(--canvas); }
+
+/* ── the five tabs, in the header ─────────────────────── */
+.tabs { display: flex; align-items: center; gap: 2px; flex: none; }
+.tabs a { position: relative; display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 11px;
+    border-radius: 8px; color: var(--t2); font-size: 12.5px; font-weight: 500; cursor: pointer;
+    transition: .14s var(--ease); }
+.tabs a:hover { background: var(--raise); color: var(--t1); text-decoration: none; }
+.tabs a.on { color: var(--t1); background: var(--panel); box-shadow: var(--sheen), 0 0 0 1px var(--stroke); }
+.tabs a.on::after { content: ""; position: absolute; left: 11px; right: 11px; bottom: -1px; height: 2px;
+    border-radius: 2px 2px 0 0; background: var(--brand); }
+.tabs .code { font-family: var(--f-data); font-size: 9.5px; color: var(--t3); }
+.tabs a.on .code { color: var(--brand); }
+
+/* ── Me menu: the consoles, the theme, signing out ────── */
+.memenu { position: absolute; right: 14px; top: calc(var(--hdr) - 6px); width: 246px; background: var(--panel);
+    border: 1px solid var(--stroke-2); border-radius: var(--r-md); box-shadow: var(--drop); padding: 6px;
+    z-index: 95; display: none; }
+.memenu.on { display: block; animation: pop .16s var(--ease) both; }
+.memenu .mh { font-family: var(--f-display); font-size: 8.5px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--t3); padding: 9px 9px 5px; font-weight: 600; }
+.memenu a, .memenu button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 9px;
+    border-radius: 8px; color: var(--t1); font-size: 12.5px; text-align: left; cursor: pointer; }
+.memenu a:hover, .memenu button:hover { background: var(--raise); text-decoration: none; }
+.memenu a.on { background: var(--brand-w); color: var(--brand); }
+.memenu .code { font-family: var(--f-data); font-size: 9.5px; color: var(--t3); width: 20px; flex: none; }
+.memenu .sep { height: 1px; background: var(--stroke); margin: 6px 4px; }
+.memenu .foot { padding: 8px 9px 4px; font-size: 11px; color: var(--t3); }
+
+/* ── main + header ───────────────────────────────────── */
+.main { display: flex; flex-direction: column; min-width: 0; overflow: hidden; background: var(--canvas); }
+.hdr { height: var(--hdr); flex: none; display: flex; align-items: center; gap: 10px; padding: 0 14px;
+    border-bottom: 1px solid var(--stroke); background: var(--canvas); z-index: 20; position: relative; }
+.hdr .omni { margin-left: auto; }
+.mark { display: flex; flex-direction: column; justify-content: center; padding-right: 15px; margin-right: 3px;
+    border-right: 1px solid var(--stroke); height: 36px; flex: none; }
+.mark .wm { font-family: var(--f-display); font-weight: 700; font-size: 14px; letter-spacing: .18em;
+    line-height: 1; text-transform: uppercase; }
+.mark .by { font-family: var(--f-display); font-size: 7px; letter-spacing: .22em; color: var(--t3);
+    text-transform: uppercase; font-weight: 600; margin-top: 4px; }
+
+.iconb { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; color: var(--t2);
+    transition: .14s var(--ease); flex: none; position: relative; }
+.iconb:hover { background: var(--raise); color: var(--t1); }
+.iconb svg { width: 17px; height: 17px; stroke-width: 1.7; }
+.badge { position: absolute; top: 3px; right: 3px; min-width: 15px; height: 15px; border-radius: 8px;
+    background: var(--ember); color: #fff; font-size: 9.5px; font-weight: 700; display: grid; place-items: center;
+    padding: 0 4px; font-family: var(--f-data); border: 2px solid var(--canvas); }
+
+/* one search field, and it takes commands — A3 */
+.omni { flex: 1; max-width: 380px; height: 33px; border-radius: 9px; background: var(--panel);
+    border: 1px solid var(--stroke); display: flex; align-items: center; gap: 8px; padding: 0 11px;
+    color: var(--t3); font-size: 12.5px; cursor: pointer; transition: .15s var(--ease); }
+.omni:hover { border-color: var(--brand); background: var(--raise); }
+.omni svg { width: 14px; height: 14px; flex: none; }
+.kbd { font-family: var(--f-data); font-size: 10px; padding: 2px 5px; border-radius: 5px; background: var(--raise);
+    border: 1px solid var(--stroke-2); color: var(--t3); margin-left: auto; }
+
+/* the clock — persistent, states what it is bound to, one contextual button */
+.clock { display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 6px 0 12px; border-radius: 10px;
+    background: var(--panel); border: 1px solid var(--stroke); position: relative; overflow: hidden; flex: none; }
+.clock::before { content: ""; position: absolute; inset: 0;
+    background: radial-gradient(120px 34px at 6% 50%, var(--dawn-w), transparent 70%); pointer-events: none; }
+.clock .live { width: 6px; height: 6px; border-radius: 50%; background: var(--dawn); flex: none;
+    box-shadow: 0 0 0 0 var(--dawn); animation: beat 2.6s infinite; }
+.clock.idle .live { background: var(--t3); animation: none; }
+@keyframes beat {
+    0% { box-shadow: 0 0 0 0 rgba(255,178,92,.55); }
+    70% { box-shadow: 0 0 0 7px rgba(255,178,92,0); }
+    100% { box-shadow: 0 0 0 0 rgba(255,178,92,0); } }
+.clock .val { font-family: var(--f-data); font-size: 14px; font-weight: 500; letter-spacing: -.03em; color: var(--dawn); }
+.clock.idle .val { color: var(--t2); }
+.clock .on-task { font-size: 11px; color: var(--t2); max-width: 130px; overflow: hidden;
+    white-space: nowrap; text-overflow: ellipsis; }
+.clock .act { height: 26px; padding: 0 10px; border-radius: 7px; background: var(--brand); color: #fff;
+    font-size: 11.5px; font-weight: 600; font-family: var(--f-display); letter-spacing: .04em; }
+.clock .act.stop { background: var(--raise); color: var(--t1); border: 1px solid var(--stroke-2); }
+
+/* status is a control, not a readout — it carries its consequence */
+.statusctl { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--stroke); font-size: 12px; cursor: pointer; flex: none; }
+.statusctl .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--mint); flex: none; }
+.statusctl[data-status="break"] .dot { background: var(--dawn); }
+.statusctl[data-status="offline"] .dot { background: var(--t3); }
+
+/* overlap chip — live count plus whether you are inside the shared window */
+.overlap { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--stroke); font-size: 12px; color: var(--t2); cursor: pointer; flex: none; }
+.overlap.inside { border-color: var(--mint); color: var(--t1); }
+.overlap .n { font-family: var(--f-data); color: var(--t1); }
+
+/* A2: the date and what is logged, beside the instrument that produces it */
+.whenwhere { display: flex; flex-direction: column; justify-content: center; font-size: 11px;
+    color: var(--t2); flex: none; white-space: nowrap; }
+.whenwhere .l2 { color: var(--t3); font-size: 10.5px; }
+.av { width: 29px; height: 29px; border-radius: 50%; background: linear-gradient(145deg, var(--iris), var(--plum));
+    display: grid; place-items: center; font-family: var(--f-display); font-size: 11px; font-weight: 600;
+    color: #fff; flex: none; cursor: pointer; }
+
+/* ── system banner slot — A8 taxonomy, four treatments ── */
+.banners { flex: none; }
+.banner { display: flex; align-items: center; gap: 10px; padding: 7px 18px; font-size: 12.5px;
+    border-bottom: 1px solid var(--stroke); }
+.banner .what { color: var(--t2); }
+.banner .act { margin-left: auto; font-weight: 600; font-size: 12px; color: inherit; text-decoration: underline; }
+.banner.info { background: var(--iris-w); color: var(--iris); }
+.banner.warn { background: var(--dawn-w); color: var(--dawn); }
+.banner.block { background: var(--ember-w); color: var(--ember); }
+.banner.queued { background: var(--mint-w); color: var(--mint); }
+
+/* ── content + toasts ────────────────────────────────── */
+.scroll { flex: 1; overflow-y: auto; overflow-x: hidden; }
+.page { padding: 22px 24px 60px; max-width: 1560px; animation: rise .34s var(--ease) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+
+/* toast region, bottom-left, never over docked chat, one at a time */
+.toasts { position: fixed; left: 18px; bottom: 18px; z-index: 120;
+    display: flex; flex-direction: column; gap: 8px; }
+.toast { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: var(--r-md);
+    background: var(--panel); border: 1px solid var(--stroke-2); box-shadow: var(--drop); font-size: 12.5px;
+    animation: pop .18s var(--ease) both; }
+.toast .undo { font-weight: 600; color: var(--brand); }
+@keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 1180px) { .whenwhere, .omni span:first-of-type { display: none; } .omni { max-width: 46px; } }
+@media (max-width: 900px) { .mark .by, .statusctl span:not(.dot), .overlap { display: none; }
+    .clock .on-task { display: none; } .tabs .code { display: none; } }

@@ -3,6 +3,7 @@
     "/apps/{{app}}/getremotelog" : "{{server_lib}}/log.js?keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&reloadOnDebug=false&logpath={{server}}/../apps/{{app}}/logs/remotelog.ndjson&remotelog=true",
 
     "/apps/{{app}}/login" : "/apis/login.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=false&addsToken=sub:{{{role}}},tokenflag:{{{tokenflag}}},id:{{{id}}},org:{{{org}}}",
+    "/apps/{{app}}/shell" : "/apis/shell.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/org" : "/apis/org.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/time" : "/apis/time.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/windows" : "/apis/windows.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",

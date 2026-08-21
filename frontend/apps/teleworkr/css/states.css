@@ -1,0 +1,70 @@
+/*
+ * A4 — the state library. One canonical treatment per state, so that the screens
+ * do not invent one error message each.
+ *
+ * The rules this encodes:
+ *   every list has loading, empty, filtered-empty and error;
+ *   every destructive action names its collateral damage;
+ *   every failure keeps the person's input;
+ *   error copy says what happened, whether data is safe, and what to do next,
+ *   with the reference id beside the sentence and never inside it.
+ *
+ * (C) 2026 TekMonks. All rights reserved.
+ */
+
+.state { display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 46px 24px; gap: 6px; }
+.state .ico { width: 34px; height: 34px; margin-bottom: 6px; color: var(--t3); }
+.state h3 { font-size: 15px; color: var(--t1); }
+.state p { margin: 0; color: var(--t2); max-width: 46ch; font-size: 12.5px; }
+.state .actions { display: flex; gap: 8px; margin-top: 12px; }
+
+.btn { height: 32px; padding: 0 14px; border-radius: 8px; background: var(--panel); border: 1px solid var(--stroke-2);
+    color: var(--t1); font-size: 12.5px; font-weight: 500; transition: .14s var(--ease); }
+.btn:hover { background: var(--raise); }
+.btn.pri { background: var(--brand); border-color: var(--brand); color: #fff; }
+.btn.danger { background: var(--ember); border-color: var(--ember); color: #fff; }
+
+/* loading — skeletons match the real layout, never a full-page spinner */
+.skel { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+.skel .line { height: 44px; border-radius: var(--r-sm); background: var(--panel); border: 1px solid var(--stroke);
+    position: relative; overflow: hidden; }
+.skel .line::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, var(--raise), transparent); animation: sweep 1.35s infinite; }
+@keyframes sweep { to { transform: translateX(100%); } }
+.skel .line:nth-child(2) { opacity: .8; } .skel .line:nth-child(3) { opacity: .62; }
+.skel .line:nth-child(4) { opacity: .45; } .skel .line:nth-child(5) { opacity: .3; }
+
+/* filtered-empty names the filters that produced the emptiness */
+.state .filters { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin-top: 4px; }
+.chip { font-size: 11.5px; padding: 3px 9px; border-radius: 20px; background: var(--raise);
+    border: 1px solid var(--stroke-2); color: var(--t2); }
+
+/* error — the reference sits beside the sentence, never inside it */
+.state.error .ico { color: var(--ember); }
+.state .ref { font-family: var(--f-data); font-size: 11px; color: var(--t3); border: 1px solid var(--stroke-2);
+    border-radius: 6px; padding: 2px 7px; }
+.state .safety { color: var(--mint); font-size: 12px; }
+
+.state.offline .ico, .state.offline h3 { color: var(--dawn); }
+.state.denied .ico { color: var(--t3); }
+
+/* destructive confirm — collateral damage is itemised before the verb */
+.confirm-back { position: fixed; inset: 0; background: rgba(4,8,18,.62); z-index: 200;
+    display: grid; place-items: center; animation: fade .16s var(--ease) both; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+.confirm { width: min(430px, 92vw); background: var(--panel); border: 1px solid var(--stroke-2);
+    border-radius: var(--r-lg); box-shadow: var(--drop); padding: 20px; animation: pop .18s var(--ease) both; }
+.confirm h3 { font-size: 15px; margin-bottom: 8px; }
+.confirm .collateral { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.confirm .collateral li { font-size: 12.5px; color: var(--t2); display: flex; align-items: center; gap: 8px; }
+.confirm .collateral li::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--ember); flex: none; }
+.confirm .irreversible { margin-top: 12px; font-size: 12px; color: var(--ember); }
+.confirm .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+/* conflict — two versions side by side, nothing discarded silently */
+.conflict { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; text-align: left; }
+.conflict .side { border: 1px solid var(--stroke-2); border-radius: var(--r-md); padding: 12px; background: var(--panel); }
+.conflict .side h4 { font-size: 12px; color: var(--t3); margin-bottom: 6px; }
+.conflict .side pre { margin: 0; font-family: var(--f-data); font-size: 11.5px; white-space: pre-wrap;
+    word-break: break-word; color: var(--t1); }

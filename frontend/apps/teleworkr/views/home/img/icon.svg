@@ -1,5 +1,0 @@
-<!-- Placeholder icon for the home view, shown in the view chooser. -->
-<svg width="60" height="60" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
-	<rect x="2" y="2" width="56" height="56" rx="14" fill="#ffffff" stroke="#4FB4ED" stroke-width="2"/>
-	<path d="M16 30l14-12 14 12v12a2 2 0 0 1-2 2H18a2 2 0 0 1-2-2z" stroke="#4FB4ED" stroke-width="3" stroke-linejoin="round" fill="none"/>
-</svg>

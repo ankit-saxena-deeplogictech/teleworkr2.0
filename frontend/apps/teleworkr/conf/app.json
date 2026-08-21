@@ -13,10 +13,6 @@
     "APP_ABOUT_URL": "https://teleworkr.com/",
 
     "COMPONENTS": [],
-    "FORCE_LOAD_VIEW": "___org_monkshu_loginapp_force_load_view",
-    "VIEWS_RELATIVE_PATH": "/views",
-    "VIEW_CHOOSER": "chooser",
-    "DEFAULT_VIEW": "home",
 
     "TKMLOGINAPP_URL": "https://login.tekmonks.com",
     "TKMLOGINAPP_DISABLE_MFA_KEY": "dma",

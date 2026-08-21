@@ -13,12 +13,17 @@ exports.initSync = _approot => {
     const sseevents = require(`${TELEWORKR_CONSTANTS.APIDIR}/sseevents.js`);
     const dblayer = require(`${TELEWORKR_CONSTANTS.LIBDIR}/dblayer.js`);
     const loginhandler = require(`${TELEWORKR_CONSTANTS.LIBDIR}/loginhandler.js`);
+    const shell = require(`${TELEWORKR_CONSTANTS.LIBDIR}/shell.js`);
 
     // The schema must be in place before anything reads it. A failure here is fatal
     // rather than logged, because every read after it would answer from a shape
     // that does not match the code.
     dblayer.initDBAsync().catch(err =>
         LOG.error(`Teleworkr schema initialization failed, the app cannot serve requests: ${err}`));
+    // A surface naming a capability that does not exist would hide itself from
+    // everyone, and would look exactly like a permission working correctly.
+    shell.validateCatalogueSync();
+
     loginhandler.initSync();
     events.initSync();
     sseevents.initSync();
