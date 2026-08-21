@@ -80,6 +80,10 @@ const REGISTER = Object.freeze({
     // --- leave ---
     opening_balance_entry: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.PSEUDONYMISE, keep: "7y", anchor: ANCHORS.EMPLOYMENT_ENDED,
         note: "An imported assertion, never a computed balance (B6). Visible forever as exactly what it is."},
+    leave_policy_pointer: {shape: SHAPES.MUTABLE, erasure: ERASURE.RETAIN, keep: null, anchor: ANCHORS.NONE,
+        note: "The published pointer per scope. Supersession moves it; it never rewrites a version."},
+    leave_request: {shape: SHAPES.MUTABLE, erasure: ERASURE.PSEUDONYMISE, keep: "7y", anchor: ANCHORS.EMPLOYMENT_ENDED,
+        note: "Pins the evaluation that produced it — policy version, rules and the deduction working."},
     leave_policy_version: {shape: SHAPES.VERSIONED_POINTER, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.NONE,
         note: "The reference implementation of the versioned-record-plus-pointer shape."},
     leave_ledger_entry: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.PSEUDONYMISE, keep: "7y", anchor: ANCHORS.EMPLOYMENT_ENDED,
