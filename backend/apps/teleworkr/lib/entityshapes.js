@@ -78,6 +78,8 @@ const REGISTER = Object.freeze({
         note: "Pins entry versions at submission, so a later edit cannot silently change an approved week."},
 
     // --- leave ---
+    opening_balance_entry: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.PSEUDONYMISE, keep: "7y", anchor: ANCHORS.EMPLOYMENT_ENDED,
+        note: "An imported assertion, never a computed balance (B6). Visible forever as exactly what it is."},
     leave_policy_version: {shape: SHAPES.VERSIONED_POINTER, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.NONE,
         note: "The reference implementation of the versioned-record-plus-pointer shape."},
     leave_ledger_entry: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.PSEUDONYMISE, keep: "7y", anchor: ANCHORS.EMPLOYMENT_ENDED,

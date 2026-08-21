@@ -71,17 +71,21 @@ exports.getOrgAsync = async function(org_id, exec) {
 // ---------------------------------------------------------------------------
 
 /**
- * @param {object} person {display_name, email, home_timezone, person_id?}
+ * @param {object} person {display_name, email, home_timezone, person_id?,
+ *      source, imported_at, import_batch_id}
  * @param {object} exec Optional transaction executor
  * @returns The created person
  */
 exports.createPersonAsync = async function(person, exec) {
     const row = {person_id: person.person_id || serverutils.generateUUID(false),
         display_name: person.display_name || null, email: person.email || null,
-        home_timezone: person.home_timezone || null, created_at: _now()};
+        home_timezone: person.home_timezone || null, created_at: _now(),
+        source: person.source || null, imported_at: person.imported_at || null,
+        import_batch_id: person.import_batch_id || null};
     await _run(
-        "INSERT INTO person (person_id, display_name, email, home_timezone, created_at) VALUES (?,?,?,?,?)",
-        [row.person_id, row.display_name, row.email, row.home_timezone, row.created_at], exec);
+        "INSERT INTO person (person_id, display_name, email, home_timezone, created_at, source, imported_at, import_batch_id) VALUES (?,?,?,?,?,?,?,?)",
+        [row.person_id, row.display_name, row.email, row.home_timezone, row.created_at,
+            row.source, row.imported_at, row.import_batch_id], exec);
     return row;
 }
 
@@ -145,15 +149,16 @@ exports.recordEmploymentAsync = async function(employment, exec) {
             (typeof employment.contracted_pattern == "string" ? employment.contracted_pattern :
                 JSON.stringify(employment.contracted_pattern)) : null,
         valid_from, valid_to, recorded_at: _now(),
-        recorded_by: employment.recorded_by || null, source: employment.source || "manual"};
+        recorded_by: employment.recorded_by || null, source: employment.source || "manual",
+        import_batch_id: employment.import_batch_id || null};
 
     const cmdObjs = [];
     if (open) cmdObjs.push({cmd: "UPDATE employment SET valid_to=? WHERE employment_id=?",
         params: [valid_from, open.employment_id]});     // close the outgoing period where the new one starts
-    cmdObjs.push({cmd: `INSERT INTO employment (${EMPLOYMENT_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    cmdObjs.push({cmd: `INSERT INTO employment (${EMPLOYMENT_COLS}, import_batch_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         params: [row.employment_id, row.org_id, row.person_id, row.status, row.jurisdiction,
             row.manager_person_id, row.contract_type, row.contracted_pattern, row.valid_from,
-            row.valid_to, row.recorded_at, row.recorded_by, row.source]});
+            row.valid_to, row.recorded_at, row.recorded_by, row.source, row.import_batch_id]});
 
     if (exec) for (const cmdObj of cmdObjs) await exec.runCmd(cmdObj.cmd, cmdObj.params);
     else await dblayer.runTransactionOrThrow(cmdObjs);
