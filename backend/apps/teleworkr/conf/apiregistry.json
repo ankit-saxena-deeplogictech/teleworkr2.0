@@ -7,6 +7,7 @@
     "/apps/{{app}}/time" : "/apis/time.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/windows" : "/apis/windows.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/tasks" : "/apis/tasks.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
+    "/apps/{{app}}/disclosure" : "/apis/disclosure.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/events" : "/apis/events.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/sseevents" : "/apis/sseevents.js?get=true&sse=true&sseint=3000&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/appevents" : "/{{server_apis}}/appevents.js?get=true&sse=true&sseint=2000&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389"
