@@ -119,3 +119,41 @@ exports.weekTargetAsync = async function(org_id, person_id, week_start) {
     return {week_start: start, target_seconds: targetSeconds, working_days: workingDays,
         per_day, excluded_days};
 }
+
+/**
+ * The A11 clock screen's single read: today's total with the running entry
+ * projected to now, the open window's local end, and the day's label. Everything
+ * is recomputed from the ledger and the window on every read — the phone shows
+ * the same numbers the timesheet will (C5).
+ *
+ * @param {string} org_id The org
+ * @param {string} person_id The person
+ * @param {string} date ISO date, defaults to today
+ * @returns {object} {date, today_total_seconds, running, window, workday, reason, window_ends_at_minute}
+ */
+exports.clockStatusAsync = async function(org_id, person_id, date) {
+    const day = date || new Date().toISOString().substring(0, 10);
+    const availability = await windows.availabilityForDateAsync(org_id, person_id, day);
+    const events = time.currentEvents(await time.eventsForDayAsync(org_id, person_id, day));
+    const nowSeconds = Math.floor(Date.now()/1000);
+
+    let total = 0, running = null;
+    for (const event of events) {
+        let seconds = event.duration_seconds;
+        if (event.ended_at === null && event.started_at)
+            seconds = Math.max(0, nowSeconds - event.started_at);
+        total += seconds || 0;
+        if (event.ended_at === null && event.started_at)
+            running = {entry_event_id: event.entry_event_id, task_ref: event.task_ref,
+                started_at: event.started_at, source: event.source, elapsed_seconds: seconds};
+    }
+
+    const window = availability.window;
+    return {date: day, today_total_seconds: total, running,
+        window: window ? {window_id: window.window_id, timezone: window.timezone,
+            start_minute: window.start_minute, end_minute: window.end_minute, kind: window.kind} : null,
+        workday: availability.workday, reason: availability.reason,
+        window_ends_at_minute: window && availability.workday ?
+            (window.end_minute <= window.start_minute ? window.end_minute + MINUTES_IN_DAY : window.end_minute)
+            : null};
+}

@@ -85,6 +85,66 @@ exports.recordEventAsync = async function(event) {
 }
 
 /**
+ * The A11 reconnect path: replays events a device buffered offline. Each event
+ * is matched by its client_event_id — replayed unchanged it reports
+ * already_stored, changed it reports conflict (the recovery screen shows it),
+ * new it stores. One bad event never blocks the rest of the batch.
+ *
+ * @param {string} org_id The org
+ * @param {string} person_id The person whose clock it was
+ * @param {array} events Buffered events as for recordEventAsync
+ * @returns {array} Per-event results {client_event_id, result, ...}
+ */
+exports.syncEventsAsync = async function(org_id, person_id, events) {
+    if (!Array.isArray(events)) throw new Error("sync needs an events array.");
+    const results = [];
+    for (const event of events) {
+        const id = event?.client_event_id || null;
+        try {
+            const row = _prepareEvent({...event, org_id, person_id}, null);
+            const existing = id ? await _byClientEventIdAsync(org_id, person_id, id) : null;
+            if (existing) {
+                results.push(_payloadEquals(existing, row) ?
+                    {client_event_id: id, result: "already_stored", entry_event_id: existing.entry_event_id} :
+                    {client_event_id: id, result: "conflict", entry_event_id: existing.entry_event_id,
+                        stored: _syncSummary(existing)});
+                continue;
+            }
+            try {
+                await dblayer.runCmdOrThrow(
+                    `INSERT INTO time_entry_event (${EVENT_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                    _eventParams(row));
+                results.push({client_event_id: id, result: "stored", entry_event_id: row.entry_event_id});
+            } catch (err) {
+                // a concurrent retry may have won — that is still the same event
+                const raced = id ? await _byClientEventIdAsync(org_id, person_id, id) : null;
+                if (raced) results.push({client_event_id: id, result: "already_stored",
+                    entry_event_id: raced.entry_event_id});
+                else throw err;
+            }
+        } catch (err) {
+            results.push({client_event_id: id, result: "invalid", reason: err.message});
+        }
+    }
+    return results;
+}
+
+function _payloadEquals(existing, row) {
+    return (existing.started_at || null) == (row.started_at || null) &&
+        (existing.ended_at || null) == (row.ended_at || null) &&
+        existing.duration_seconds == row.duration_seconds &&
+        existing.entry_date == row.entry_date &&
+        (existing.task_ref || null) == (row.task_ref || null) &&
+        existing.source == row.source;
+}
+
+function _syncSummary(event) {
+    return {started_at: event.started_at, ended_at: event.ended_at,
+        duration_seconds: event.duration_seconds, entry_date: event.entry_date,
+        task_ref: event.task_ref};
+}
+
+/**
  * Edits your own entry. An edit never overwrites — it appends a new event that
  * supersedes the old one and carries the reason, so the original value, the
  * editor and the moment all survive into payroll export (C5).
@@ -525,3 +585,4 @@ function _currentEvents(events) {
 
 exports.STATUS = STATUS;
 exports.SOURCES = SOURCES;
+exports.currentEvents = _currentEvents;
