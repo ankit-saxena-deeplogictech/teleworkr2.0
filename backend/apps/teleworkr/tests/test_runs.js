@@ -270,7 +270,9 @@ async function _buildWorld() {
     await permissions.assignRoleAsync(org.org_id, people.erin.person_id, "employee", from);
 
     await leave.publishPolicyAsync({org_id: org.org_id, actor_person_id: people.carol.person_id,
-        step_up_verified: true, effective_from: "2026-04-01", policy: POLICY()});
+        step_up_verified: true, effective_from: "2026-04-01", policy: POLICY(),
+        resolutions: {leave_during_probation: "per_type_eligibility",
+            clubbing_window: "per_financial_year"}});
 
     await setup.importBalancesAsync({org_id: org.org_id, actor_person_id: people.dave.person_id,
         rows: [{email: `alice.${stamp}@example.invalid`, leave_type: "EL", days: 20},

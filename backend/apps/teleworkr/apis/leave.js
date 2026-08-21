@@ -25,9 +25,14 @@ exports.doService = async jsonReq => {
                 const published = await leave.publishPolicyAsync({org_id: jsonReq.org,
                     actor_person_id: actor.person_id, step_up_verified: jsonReq.step_up_verified === true,
                     scope: jsonReq.scope, effective_from: jsonReq.effective_from,
-                    policy: jsonReq.policy, dry_run: jsonReq.dry_run});
+                    policy: jsonReq.policy, resolutions: jsonReq.resolutions, dry_run: jsonReq.dry_run});
                 return {...CONSTANTS.TRUE_RESULT, version: published.version,
-                    superseded: published.superseded};
+                    superseded: published.superseded, conflicts: published.conflicts,
+                    resolutions: published.resolutions};
+            }
+            case "conflicts": {
+                const conflicts = await leave.policyConflictsAsync(jsonReq.org, jsonReq.policy_version_id);
+                return {...CONSTANTS.TRUE_RESULT, conflicts};
             }
             case "evaluate": {
                 const evaluation = await leave.evaluateAsync({org_id: jsonReq.org,
@@ -95,5 +100,5 @@ const _actorAsync = async jsonReq => {
 }
 
 const validateRequest = jsonReq => jsonReq &&
-    ["publish", "evaluate", "request", "balance", "requests", "approve", "decline", "cancel", "pending", "escalations"]
+    ["publish", "conflicts", "evaluate", "request", "balance", "requests", "approve", "decline", "cancel", "pending", "escalations"]
         .includes(jsonReq.op) && jsonReq.id && jsonReq.org;

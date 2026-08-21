@@ -73,6 +73,11 @@ const POLICY = _ => ({
     ]
 });
 
+const RESOLUTIONS = _ => ({
+    leave_during_probation: "per_type_eligibility",
+    clubbing_window: "per_financial_year",
+    half_day_rule: "confirm_not_deduct"});
+
 exports.runTestsAsync = async function(argv) {
     if ((!argv[0]) || (argv[0].toLowerCase() != "leave")) {
         LOG.console("Skipping leave test case, not called.\n"); return true;
@@ -100,10 +105,24 @@ exports.runTestsAsync = async function(argv) {
 
 async function _testPublish(w) {
     LOG.console("\n the policy is a versioned record with a published pointer\n");
+    await _checkThrows("unresolved structural conflicts block publish, naming each", _ =>
+        leave.publishPolicyAsync({org_id: w.org_id, actor_person_id: w.carol,
+            step_up_verified: true, effective_from: "2026-04-01", policy: POLICY()}));
+    const blocked = await _checkThrows("the refusal carries the conflict rows for the screen", _ =>
+        leave.publishPolicyAsync({org_id: w.org_id, actor_person_id: w.carol,
+            step_up_verified: true, effective_from: "2026-04-01", policy: POLICY()}));
+    _check("each blocking conflict is a named, choice-bearing row",
+        blocked.conflicts?.length >= 2 &&
+        blocked.conflicts.every(conflict => conflict.choices.length && conflict.why.length));
+
     const published = await leave.publishPolicyAsync({org_id: w.org_id, actor_person_id: w.carol,
-        step_up_verified: true, effective_from: "2026-04-01", policy: POLICY()});
+        step_up_verified: true, effective_from: "2026-04-01", policy: POLICY(),
+        resolutions: RESOLUTIONS()});
     w.v1 = published.version;
     _check("publishing creates version 1", published.version.version == 1 && published.superseded === null);
+    _check("the resolutions are stored with the version",
+        published.resolutions.clubbing_window?.choice == "per_financial_year" &&
+        published.resolutions.half_day_rule?.source == "explicit");
     _check("the pointer now points at version 1",
         (await dblayer.getQueryOrThrow(
             "SELECT * FROM leave_policy_pointer WHERE org_id=?", [w.org_id]))[0].policy_version_id == published.version.policy_version_id);
@@ -114,7 +133,8 @@ async function _testPublish(w) {
 
     await _checkThrows("a person without leave_policy.publish is refused", _ =>
         leave.publishPolicyAsync({org_id: w.org_id, actor_person_id: w.erin,
-            step_up_verified: true, effective_from: "2026-04-01", policy: POLICY()}));
+            step_up_verified: true, effective_from: "2026-04-01", policy: POLICY(),
+            resolutions: RESOLUTIONS()}));
 
     const withColour = POLICY(); withColour.leave_types[0].colour = "red";
     await _checkThrows("a rule the schema cannot express blocks publish", _ =>
@@ -137,7 +157,8 @@ async function _testPublish(w) {
             step_up_verified: true, effective_from: "April fools", policy: POLICY()}));
 
     const v2 = await leave.publishPolicyAsync({org_id: w.org_id, actor_person_id: w.carol,
-        step_up_verified: true, effective_from: "2026-04-01", policy: POLICY()});
+        step_up_verified: true, effective_from: "2026-04-01", policy: POLICY(),
+        resolutions: RESOLUTIONS()});
     w.v2 = v2.version;
     _check("a new publish supersedes rather than rewrites", v2.version.version == 2 &&
         v2.superseded == published.version.policy_version_id);
@@ -308,7 +329,8 @@ async function _testRequests(w) {
 async function _testAPI(w) {
     LOG.console("\n the leave API\n");
     const published = await leaveapi.doService({op: "publish", id: w.carolEmail, org: w.org_id,
-        step_up_verified: true, effective_from: "2026-04-01", policy: POLICY()});
+        step_up_verified: true, effective_from: "2026-04-01", policy: POLICY(),
+        resolutions: RESOLUTIONS()});
     _check("op publish answers true with the version", published.result === true && published.version.version >= 3);
 
     const evaluation = await leaveapi.doService({op: "evaluate", id: w.aliceEmail, org: w.org_id,

@@ -67,7 +67,9 @@ exports.runTestsAsync = async function(argv) {
     try {
         w = await _buildWorld();
         await leave.publishPolicyAsync({org_id: w.org_id, actor_person_id: w.carol,
-            step_up_verified: true, effective_from: "2026-04-01", policy: POLICY()});
+            step_up_verified: true, effective_from: "2026-04-01", policy: POLICY(),
+            resolutions: {leave_during_probation: "per_type_eligibility",
+                clubbing_window: "per_financial_year"}});
         await setup.importBalancesAsync({org_id: w.org_id, actor_person_id: w.dave,
             rows: [{email: w.aliceEmail, leave_type: "EL", days: 20},
                 {email: w.aliceEmail, leave_type: "SNL", days: 3},

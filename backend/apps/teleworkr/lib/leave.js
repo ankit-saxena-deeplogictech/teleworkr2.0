@@ -26,6 +26,7 @@ const dblayer = require(`${TELEWORKR_CONSTANTS.LIBDIR}/dblayer.js`);
 const permissions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/permissions.js`);
 const audit = require(`${TELEWORKR_CONSTANTS.LIBDIR}/audit.js`);
 const windows = require(`${TELEWORKR_CONSTANTS.LIBDIR}/windows.js`);
+const policyconflicts = require(`${TELEWORKR_CONSTANTS.LIBDIR}/policy_conflicts.js`);
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const EXPIRING_WINDOW_DAYS = 10;
@@ -65,14 +66,16 @@ const _assertISODate = (date, label="date") => {
  * publish and its audit entry commit together.
  *
  * @param {object} request {org_id, actor_person_id, step_up_verified, scope,
- *      effective_from, policy, dry_run}
- * @returns {object} {version, superseded}
+ *      effective_from, policy, resolutions, dry_run}
+ * @returns {object} {version, superseded, conflicts, resolutions}
  */
 exports.publishPolicyAsync = async function(request) {
     const scope = request.scope || request.policy?.scope || {};
     const policy = _validatePolicy(request.policy);
     _assertISODate(request.effective_from, "effective_from");
     const scopeKey = _scopeKey(scope);
+    const detected = policyconflicts.detect(policy);
+    const resolutions = policyconflicts.resolveForPolicy(policy, request.resolutions, request.actor_person_id);
 
     return await audit.performAsync({
         org_id: request.org_id, actor_person_id: request.actor_person_id,
@@ -88,15 +91,16 @@ exports.publishPolicyAsync = async function(request) {
             const version = {policy_version_id: serverutils.generateUUID(false), org_id: request.org_id,
                 version: (versions[0].max || 0) + 1, scope: JSON.stringify(scope),
                 status: "published", effective_from: request.effective_from,
-                policy: JSON.stringify(policy), published_at: _now(),
+                policy: JSON.stringify(policy), resolutions: JSON.stringify(resolutions),
+                published_at: _now(),
                 published_by: request.actor_person_id, created_at: _now(), created_by: request.actor_person_id};
 
             await exec.runCmd(`INSERT INTO leave_policy_version (policy_version_id, org_id, version,
-                scope, status, effective_from, policy, published_at, published_by, created_at, created_by)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+                scope, status, effective_from, policy, resolutions, published_at, published_by, created_at, created_by)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
                 [version.policy_version_id, version.org_id, version.version, version.scope,
-                    version.status, version.effective_from, version.policy, version.published_at,
-                    version.published_by, version.created_at, version.created_by]);
+                    version.status, version.effective_from, version.policy, version.resolutions,
+                    version.published_at, version.published_by, version.created_at, version.created_by]);
             if (current.length) await exec.runCmd(
                 "UPDATE leave_policy_version SET status='superseded' WHERE policy_version_id=?",
                 [current[0].policy_version_id]);
@@ -108,8 +112,35 @@ exports.publishPolicyAsync = async function(request) {
                 [request.org_id, scopeKey, version.policy_version_id, _now()]);
 
             LOG.info(`Published leave policy v${version.version} for ${scopeKey} in ${request.org_id}.`);
-            return {version, superseded: current.length ? current[0].policy_version_id : null};
+            return {version, superseded: current.length ? current[0].policy_version_id : null,
+                conflicts: detected.map(({id, title, why, class: cls, choices, default: def}) =>
+                    ({id, title, why, class: cls, choices, default_reading: def || null})),
+                resolutions};
         }});
+}
+
+/**
+ * The J8 screen: all seven conflicts with, for the given policy version, which
+ * were detected, what was resolved and whether it was explicit or a default.
+ * @returns {array} Conflict rows with detection and resolution state
+ */
+exports.policyConflictsAsync = async function(org_id, policy_version_id) {
+    const rows = await dblayer.getQueryOrThrow(
+        "SELECT * FROM leave_policy_version WHERE org_id=? AND policy_version_id=?",
+        [org_id, policy_version_id]);
+    if (!rows.length) throw new Error(`No policy version ${policy_version_id}.`);
+    const version = rows[0];
+    const policy = JSON.parse(version.policy);
+    const detected = policyconflicts.detect(policy);
+    const stored = JSON.parse(version.resolutions || "{}");
+    return policyconflicts.CONFLICTS.map(conflict => ({
+        id: conflict.id, title: conflict.title, why: conflict.why, class: conflict.class,
+        choices: conflict.choices, default_reading: conflict.default || null,
+        detected: detected.some(entry => entry.id == conflict.id),
+        resolution: stored[conflict.id]?.choice || null,
+        source: stored[conflict.id]?.source || null,
+        decided_by: stored[conflict.id]?.decided_by || null,
+        decided_at: stored[conflict.id]?.decided_at || null}));
 }
 
 /** The structural validator. Unknown keys and contradictory primitives fail loudly here. */
