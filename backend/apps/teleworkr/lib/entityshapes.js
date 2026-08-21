@@ -88,6 +88,8 @@ const REGISTER = Object.freeze({
         note: "The reference implementation of the versioned-record-plus-pointer shape."},
     leave_ledger_entry: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.PSEUDONYMISE, keep: "7y", anchor: ANCHORS.EMPLOYMENT_ENDED,
         note: "Stamped with the policy version that produced it. Balance is projected over this, never stored."},
+    leave_run: {shape: SHAPES.MUTABLE, erasure: ERASURE.PSEUDONYMISE, keep: "7y", anchor: ANCHORS.NONE,
+        note: "A scheduled run's record — previewable before it executes, batch-tagged and reversible after."},
 
     // --- work and knowledge ---
     task: {shape: SHAPES.MUTABLE, erasure: ERASURE.ERASE, keep: null, anchor: ANCHORS.NONE,

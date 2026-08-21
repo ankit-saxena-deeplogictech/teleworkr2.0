@@ -178,6 +178,9 @@ async function _policyForPersonAsync(org_id, person_id, asOf) {
     return {employment, version: covered ? version : null, scope_mismatch: !covered};
 }
 
+/** @see _policyForPersonAsync — the policy version in force for a person on a date. */
+exports.policyForPersonAsync = _policyForPersonAsync;
+
 // ---------------------------------------------------------------------------
 // the evaluator — screens ask, they never decide
 // ---------------------------------------------------------------------------
@@ -402,20 +405,39 @@ async function _materialiseAccrualsAsync(org_id, person_id, leave_type, version,
     }
 }
 
-async function _appendEntryAsync(org_id, person_id, leave_type, days, kind, entry_date,
-    policy_version_id, reason, source_request_id, recorded_by) {
-    const row = {leave_ledger_entry_id: serverutils.generateUUID(false), org_id, person_id,
-        leave_type, days, kind, entry_date, policy_version_id: policy_version_id || null,
-        reason: reason || null, source_request_id: source_request_id || null,
-        recorded_at: _now(), recorded_by: recorded_by || null};
-    await dblayer.runCmdOrThrow(
+function _ledgerRow(entry) {
+    return {leave_ledger_entry_id: serverutils.generateUUID(false), org_id: entry.org_id,
+        person_id: entry.person_id, leave_type: entry.leave_type, days: entry.days, kind: entry.kind,
+        entry_date: entry.entry_date, policy_version_id: entry.policy_version_id || null,
+        reason: entry.reason || null, source_request_id: entry.source_request_id || null,
+        batch_id: entry.batch_id || null, recorded_at: _now(), recorded_by: entry.recorded_by || null};
+}
+
+/**
+ * Inserts a prepared ledger row through an executor — the queued path and a
+ * runInTransactionAsync path share this, so a J7 run can write its rows inside
+ * the run's own transaction.
+ * @param {object} exec {runCmd, getQuery}
+ * @param {object} entry As for recordEntryAsync
+ * @returns The recorded row
+ */
+exports.insertLedgerEntryAsync = async function(exec, entry) {
+    const row = _ledgerRow(entry);
+    await exec.runCmd(
         `INSERT INTO leave_ledger_entry (leave_ledger_entry_id, org_id, person_id, leave_type, days,
-            kind, entry_date, policy_version_id, reason, source_request_id, recorded_at, recorded_by)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+            kind, entry_date, policy_version_id, reason, source_request_id, batch_id, recorded_at, recorded_by)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [row.leave_ledger_entry_id, row.org_id, row.person_id, row.leave_type, row.days, row.kind,
-            row.entry_date, row.policy_version_id, row.reason, row.source_request_id,
+            row.entry_date, row.policy_version_id, row.reason, row.source_request_id, row.batch_id,
             row.recorded_at, row.recorded_by]);
     return row;
+}
+
+async function _appendEntryAsync(org_id, person_id, leave_type, days, kind, entry_date,
+    policy_version_id, reason, source_request_id, recorded_by, batch_id) {
+    return await exports.insertLedgerEntryAsync({runCmd: dblayer.runCmdOrThrow},
+        {org_id, person_id, leave_type, days, kind, entry_date, policy_version_id, reason,
+            source_request_id, recorded_by, batch_id});
 }
 
 function _expiresOn(entry, type) {
@@ -429,12 +451,12 @@ function _expiresOn(entry, type) {
  * Appends a ledger entry — the write path accruals, deductions, lapses and
  * adjustments all share. Every entry pins the policy version that produced it.
  * @param {object} entry {org_id, person_id, leave_type, days, kind, entry_date,
- *      policy_version_id, reason, source_request_id, recorded_by}
+ *      policy_version_id, reason, source_request_id, recorded_by, batch_id}
  */
 exports.recordEntryAsync = async function(entry) {
     return await _appendEntryAsync(entry.org_id, entry.person_id, entry.leave_type, entry.days,
         entry.kind, entry.entry_date, entry.policy_version_id, entry.reason,
-        entry.source_request_id, entry.recorded_by);
+        entry.source_request_id, entry.recorded_by, entry.batch_id);
 }
 
 // ---------------------------------------------------------------------------
