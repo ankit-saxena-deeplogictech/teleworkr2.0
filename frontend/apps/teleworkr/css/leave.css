@@ -1,0 +1,28 @@
+/*
+ * J3 — the My leave screen layout: balances as projections, requests as
+ * records, and the request form that shows the engine's working first.
+ * (C) 2026 TekMonks. All rights reserved.
+ * License: See the enclosed LICENSE file.
+ */
+
+.page.lv { display: flex; flex-direction: column; gap: 12px; }
+.lv-view { display: flex; flex-direction: column; gap: 10px; }
+.lv-cards { display: flex; flex-direction: column; gap: 10px; }
+.lv-card { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--r-lg);
+    padding: 13px 16px; display: flex; flex-direction: column; gap: 7px; }
+.lv-card-top { display: flex; align-items: center; gap: 10px; }
+.lv-code { font-family: var(--f-data); font-size: 10.5px; color: var(--brand);
+    background: var(--brand-w); padding: 3px 8px; border-radius: 6px; }
+.lv-avail { font-size: 16px; color: var(--t1); }
+.lv-expiring { font-size: 11.5px; color: var(--dawn); background: var(--dawn-w);
+    border-radius: 6px; padding: 5px 9px; }
+.lv-status { font-family: var(--f-data); font-size: 9px; letter-spacing: .06em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 6px; }
+.lv-status.s-pending { color: var(--dawn); background: var(--dawn-w); }
+.lv-status.s-approved { color: var(--mint); background: var(--mint-w); }
+.lv-status.s-declined { color: var(--ember); background: var(--ember-w); }
+.lv-status.s-cancelled, .lv-status.s-draft { color: var(--t2); background: var(--raise); }
+.lv-form { display: flex; flex-direction: column; gap: 10px; }
+.lv-preview { border-radius: var(--r-md); padding: 11px 13px; display: flex; flex-direction: column; gap: 5px; }
+.lv-preview.ok { background: var(--mint-w); border: 1px solid var(--mint); }
+.lv-preview.no { background: var(--ember-w); border: 1px solid var(--ember); }

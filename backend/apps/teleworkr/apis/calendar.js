@@ -32,6 +32,11 @@ exports.doService = async jsonReq => {
                     jsonReq.person_id || actor.person_id, jsonReq.week_start);
                 return {...CONSTANTS.TRUE_RESULT, ...target};
             }
+            case "roster": {
+                // who is here — the E3 board and the overlap chip both need it
+                const roster = await spine.rosterAsOfAsync(jsonReq.org, jsonReq.date);
+                return {...CONSTANTS.TRUE_RESULT, roster};
+            }
             default: return CONSTANTS.FALSE_RESULT;
         }
     } catch (err) {
@@ -47,4 +52,4 @@ const _actorAsync = async jsonReq => {
 }
 
 const validateRequest = jsonReq => jsonReq &&
-    ["board", "day_facts", "week_target"].includes(jsonReq.op) && jsonReq.id && jsonReq.org;
+    ["board", "day_facts", "week_target", "roster"].includes(jsonReq.op) && jsonReq.id && jsonReq.org;

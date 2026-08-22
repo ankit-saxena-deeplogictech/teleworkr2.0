@@ -21,6 +21,9 @@ import {render as renderTraining} from "./screens/training.mjs";
 import {render as renderSurveys} from "./screens/surveys.mjs";
 import {render as renderTasks} from "./screens/tasks.mjs";
 import {render as renderTimesheet} from "./screens/timesheet.mjs";
+import {render as renderTeam} from "./screens/team.mjs";
+import {render as renderCalendar} from "./screens/calendar.mjs";
+import {render as renderLeave} from "./screens/leave.mjs";
 
 const API_SHELL = "shell", API_CLOCK = "clock";
 
@@ -31,7 +34,8 @@ const API_SHELL = "shell", API_CLOCK = "clock";
  * one line here, not a branch in setSurface.
  */
 const SCREENS = {day: renderDayBoard, training: renderTraining, trainingtrack: renderTraining,
-    surveys: renderSurveys, tasks: renderTasks, timesheet: renderTimesheet};
+    surveys: renderSurveys, tasks: renderTasks, timesheet: renderTimesheet,
+    team: renderTeam, calendar: renderCalendar, leave: renderLeave};
 const CLOCK_POLL_MS = 30000;        // the server is the record; the local tick is only the seconds between polls
 const THEME_KEY = "__teleworkr_theme";
 
@@ -73,6 +77,17 @@ async function refreshProjection() {
     } catch (err) {response = null; LOG.error(`Shell bootstrap failed: ${err}`);}
 
     if (!response || !response.result) {
+        // First-run: the org named by the IdP does not exist yet. Phase 0's
+        // gate is "create an org, sign in via IdP" — this is the create half,
+        // and it is the one failure the shell answers with a form instead of
+        // an error.
+        const loginResponse = session.get(APP_CONSTANTS.LOGIN_RESPONSE);
+        if (loginResponse?.provisioning_status == "no_org") {
+            _renderOrgBootstrap(loginResponse);
+            document.querySelector("#tabs").innerHTML = "";
+            return false;
+        }
+
         // The shell itself could not load. This is the one error that cannot be
         // rendered inside the shell, so it replaces it.
         const root = document.querySelector("#surface");
@@ -87,6 +102,69 @@ async function refreshProjection() {
 
     projection = response;
     return true;
+}
+
+/**
+ * The first-run screen: the IdP verified this person and named an org that
+ * does not exist here yet. Creating it makes them its first admin — the Phase
+ * 0 gate, rendered as a form rather than an error.
+ *
+ * @param {object} loginResponse The stored login result (org/suborg claims)
+ */
+function _renderOrgBootstrap(loginResponse) {
+    const root = document.querySelector("#surface");
+    const today = new Date().toISOString().substring(0, 10);
+    const orgName = loginResponse.suborg || loginResponse.org || "";
+    root.innerHTML = `<div class="page">
+        <div class="orgboot">
+            <div class="up t3">TeleWorkr · first sign-in</div>
+            <h2>Set up your organisation</h2>
+            <p class="t2 sm">Your identity is verified. <b>${states.esc(orgName)}</b> does not exist
+                here yet — creating it makes you its first admin.</p>
+            <div class="orgboot-form">
+                <label class="col sm t3">Organisation name
+                    <input class="inp" id="ob-name" value="${states.esc(orgName)}"></label>
+                <label class="col sm t3">Home jurisdiction
+                    <input class="inp" id="ob-home" placeholder="e.g. IN"></label>
+                <label class="col sm t3">Your jurisdiction
+                    <input class="inp" id="ob-jur" placeholder="e.g. IN"></label>
+                <label class="col sm t3">Start date
+                    <input class="inp" id="ob-start" type="date" value="${today}"></label>
+                <label class="col sm t3">Employment status
+                    <select class="inp" id="ob-status">
+                        <option value="active">active</option><option value="on_probation">on probation</option>
+                        <option value="terminated">terminated</option><option value="retired">retired</option>
+                    </select></label>
+                <label class="col sm t3">Contract type
+                    <select class="inp" id="ob-contract">
+                        <option value="employee">employee</option><option value="contractor">contractor</option>
+                    </select></label>
+                <button class="btn pri" id="ob-create">Create organisation</button>
+            </div>
+            <div id="ob-error" class="t3 sm"></div>
+        </div>
+    </div>`;
+
+    root.querySelector("#ob-create").addEventListener("click", async _ => {
+        const button = root.querySelector("#ob-create");
+        button.disabled = true;
+        const response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/org`, "GET",
+            {op: "create", ..._me(),
+                name: root.querySelector("#ob-name").value.trim(),
+                home_jurisdiction: root.querySelector("#ob-home").value.trim(),
+                jurisdiction: root.querySelector("#ob-jur").value.trim(),
+                start_date: root.querySelector("#ob-start").value,
+                employment_status: root.querySelector("#ob-status").value,
+                contract_type: root.querySelector("#ob-contract").value}, true);
+        if (!response?.result) {
+            button.disabled = false;
+            root.querySelector("#ob-error").textContent =
+                response?.reason || "The organisation could not be created.";
+            return;
+        }
+        states.toast({message: "Organisation created — you are its first admin."});
+        window.location.reload();
+    });
 }
 
 /**

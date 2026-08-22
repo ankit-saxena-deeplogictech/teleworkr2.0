@@ -1,0 +1,23 @@
+/*
+ * E1 — the Calendar screen layout: the week, per day, from the window
+ * projection, with approved leave days labelled rather than silently full.
+ * (C) 2026 TekMonks. All rights reserved.
+ * License: See the enclosed LICENSE file.
+ */
+
+.page.cal { display: flex; flex-direction: column; gap: 12px; }
+.cal-head { display: flex; align-items: center; gap: 10px; }
+.cal-week { display: flex; flex-direction: column; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 760px) { .cal-grid { grid-template-columns: repeat(4, 1fr); } }
+.cal-day { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--r-md);
+    padding: 10px 11px; cursor: pointer; display: flex; flex-direction: column; gap: 4px;
+    transition: border-color .14s var(--ease); }
+.cal-day:hover { border-color: var(--stroke-2); }
+.cal-day.on { border-color: var(--brand); background: var(--brand-w); }
+.cal-day.excluded { opacity: .62; }
+.cal-day-target { font-size: 11px; color: var(--t2); }
+.cal-card { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--r-md);
+    padding: 13px 15px; display: flex; flex-direction: column; gap: 6px; }
+.cal-note { color: var(--t3); font-size: 12.5px; border: 1px dashed var(--stroke-2);
+    border-radius: var(--r-md); padding: 12px 14px; }

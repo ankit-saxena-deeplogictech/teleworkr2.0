@@ -100,5 +100,5 @@ const _actorAsync = async jsonReq => {
 }
 
 const validateRequest = jsonReq => jsonReq &&
-    ["publish", "conflicts", "evaluate", "request", "balance", "requests", "approve", "decline", "cancel", "pending", "escalations"]
+    ["publish", "conflicts", "evaluate", "request", "balance", "policy", "requests", "approve", "decline", "cancel", "pending", "escalations"]
         .includes(jsonReq.op) && jsonReq.id && jsonReq.org;

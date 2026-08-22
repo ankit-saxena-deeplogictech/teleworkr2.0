@@ -38,6 +38,16 @@
 .memenu .sep { height: 1px; background: var(--stroke); margin: 6px 4px; }
 .memenu .foot { padding: 8px 9px 4px; font-size: 11px; color: var(--t3); }
 
+/* ── first-run: create the org the IdP named ── */
+.orgboot { max-width: 480px; margin: 24px auto; background: var(--panel);
+    border: 1px solid var(--stroke-2); border-radius: var(--r-lg); padding: 22px 24px;
+    display: flex; flex-direction: column; gap: 10px; }
+.orgboot h2 { font-size: 19px; }
+.orgboot-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+.orgboot-form label { gap: 4px; }
+.orgboot-form .btn, .orgboot-form #ob-error { grid-column: 1 / -1; }
+@media (max-width: 560px) { .orgboot-form { grid-template-columns: 1fr; } }
+
 /* ── main + header ───────────────────────────────────── */
 .main { display: flex; flex-direction: column; min-width: 0; overflow: hidden; background: var(--canvas); }
 .hdr { height: var(--hdr); flex: none; display: flex; align-items: center; gap: 10px; padding: 0 14px;

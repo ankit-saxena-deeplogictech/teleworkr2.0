@@ -1,0 +1,25 @@
+/*
+ * E3 — the Team screen layout: the overlap board, by person and by pair.
+ * (C) 2026 TekMonks. All rights reserved.
+ * License: See the enclosed LICENSE file.
+ */
+
+.page.tm { display: flex; flex-direction: column; gap: 12px; }
+.tm-head { display: flex; align-items: center; gap: 10px; }
+.tm-date { display: flex; flex-direction: column; }
+.tm-card { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--r-lg);
+    padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.tm-headline .tm-big { font-size: 16px; margin: 2px 0; }
+.tm-big .mono { font-size: 18px; color: var(--t1); }
+.tm-row { display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--stroke);
+    padding: 8px 2px; }
+.tm-row:first-of-type { border-top: none; }
+.tm-chip { font-family: var(--f-data); font-size: 9px; letter-spacing: .06em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 6px; flex: none; }
+.tm-chip.on { color: var(--mint); background: var(--mint-w); }
+.tm-chip.leave { color: var(--iris); background: var(--iris-w); }
+.tm-chip.off { color: var(--t2); background: var(--raise); }
+.tm-chip.undeclared { color: var(--dawn); background: var(--dawn-w); }
+.tm-zero { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+    border-top: 1px solid var(--stroke); padding: 8px 2px; font-size: 12.5px; }
+.tm-zero:first-of-type { border-top: none; }
