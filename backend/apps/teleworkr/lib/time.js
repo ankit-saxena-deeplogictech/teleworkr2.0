@@ -207,6 +207,50 @@ exports.editOtherAsync = async function(request) {
 }
 
 /**
+ * Closes the entry a timer left open, by superseding it with the same entry ended.
+ *
+ * This is deliberately not editOwnAsync. An edit changes a value the person
+ * already recorded and C5 shows the trail forever, so it demands a reason. A
+ * clock-out is the entry completing, which is the normal end of the thing the
+ * timer started — asking "why did you stop working" is not a question the
+ * product gets to ask.
+ *
+ * @param {object} request {org_id, person_id, ended_at, entry_event_id}
+ * @returns The closing event, or null if nothing was running
+ */
+exports.closeRunningEntryAsync = async function(request) {
+    const endedAt = request.ended_at || _now();
+    return await dblayer.runInTransactionAsync(async exec => {
+        const day = request.entry_date || _today();
+        const events = _currentEvents(await _eventsForDayViaAsync(exec, request.org_id, request.person_id, day));
+        const running = events.find(event => event.ended_at === null && event.started_at &&
+            (!request.entry_event_id || event.entry_event_id == request.entry_event_id));
+        if (!running) return null;
+        if (endedAt < running.started_at) throw new Error(
+            "A clock-out cannot land before the entry it closes started.");
+
+        const timesheet = await _timesheetForDateViaAsync(exec, request.org_id, request.person_id, running.entry_date);
+        _assertEditable(timesheet, running.entry_date);
+
+        return await _appendEventViaAsync(exec, {..._applyChanges(running, {ended_at: endedAt,
+            duration_seconds: endedAt - running.started_at}),
+            supersedes_entry_event_id: running.entry_event_id, reason: request.reason || null});
+    });
+}
+
+/**
+ * The entry a timer has left open for this person today, or null.
+ * @param {string} org_id The org
+ * @param {string} person_id The person
+ * @param {string} entry_date ISO date
+ * @returns The running event, or null
+ */
+exports.runningEntryAsync = async function(org_id, person_id, entry_date) {
+    const events = _currentEvents(await exports.eventsForDayAsync(org_id, person_id, entry_date || _today()));
+    return events.find(event => event.ended_at === null && event.started_at) || null;
+}
+
+/**
  * Every event for a person on a date, oldest first. The person's own view.
  * @param {string} org_id The org
  * @param {string} person_id The person
@@ -429,8 +473,11 @@ function _prepareEvent(event, reason) {
     let {started_at, ended_at, duration_seconds} = event;
     if (started_at !== undefined && started_at !== null && !Number.isInteger(started_at)) throw new Error("started_at must be unix seconds.");
     if (ended_at !== undefined && ended_at !== null && !Number.isInteger(ended_at)) throw new Error("ended_at must be unix seconds.");
-    if (started_at && ended_at && ended_at <= started_at) throw new Error(
-        `ended_at (${ended_at}) must be after started_at (${started_at}).`);
+    // An entry that starts and stops in the same second is a true statement, and a
+    // clock-out is the one action that is not allowed to fail. Only time running
+    // backwards is refused.
+    if (started_at && ended_at && ended_at < started_at) throw new Error(
+        `ended_at (${ended_at}) cannot be before started_at (${started_at}).`);
     if (duration_seconds === undefined || duration_seconds === null) {
         if (started_at && ended_at) duration_seconds = ended_at - started_at;
         else duration_seconds = 0;    // a running timer (started only) projects on read; a no-time entry is zero
@@ -535,6 +582,13 @@ async function _timesheetAsync(exec, org_id, person_id, week_start) {
 async function _timesheetForDateViaAsync(exec, org_id, person_id, entry_date) {
     const weekStart = exports.weekStartOf(entry_date);
     return await _timesheetAsync(exec, org_id, person_id, weekStart);
+}
+
+async function _eventsForDayViaAsync(exec, org_id, person_id, entry_date) {
+    const sql = `SELECT * FROM time_entry_event WHERE org_id=? AND person_id=? AND entry_date=?
+        ORDER BY recorded_at ASC`;
+    return exec ? await exec.getQuery(sql, [org_id, person_id, entry_date]) :
+        await dblayer.getQueryOrThrow(sql, [org_id, person_id, entry_date]);
 }
 
 async function _eventsForWeekViaAsync(exec, org_id, person_id, week_start) {

@@ -249,6 +249,23 @@ exports.directReportsAsOfAsync = async function(org_id, manager_person_id, asOf=
  * @param {string} asOf ISO date, defaults to today
  * @returns The employment periods in force across every org on that date
  */
+/**
+ * Everyone with employment in force in an org on a date, person and employment
+ * joined lightly. This is the org's roster as of that date — E3's overlap board
+ * and C1's presence summary both need "who is here", not "who was ever hired".
+ * @param {string} org_id The org
+ * @param {string} asOf ISO date, defaults to today
+ * @returns {array} {person_id, display_name, home_timezone, manager_person_id, jurisdiction}
+ */
+exports.rosterAsOfAsync = async function(org_id, asOf=_today()) {
+    _assertISODate(asOf, "asOf");
+    return await dblayer.getQueryOrThrow(
+        `SELECT p.person_id, p.display_name, p.home_timezone, e.manager_person_id, e.jurisdiction
+            FROM employment e JOIN person p ON p.person_id = e.person_id
+            WHERE e.org_id=? AND e.valid_from <= ? AND (e.valid_to IS NULL OR e.valid_to > ?)`,
+        [org_id, asOf, asOf]);
+}
+
 exports.orgsForPersonAsOfAsync = async function(person_id, asOf=_today()) {
     _assertISODate(asOf, "asOf");
     return await dblayer.getQueryOrThrow(

@@ -116,23 +116,29 @@ const conflict = (options={}) => `<div class="state" role="alert">
     ${_actions([{id: "mine", label: "Keep mine"}, {id: "theirs", label: "Keep theirs"}])}</div>`;
 
 /**
- * A destructive confirm that itemises what goes with the thing being deleted.
- * Resolves true only on an explicit confirm.
- * @param {object} options {title, collateral:[string], irreversible, confirmLabel}
- * @returns {Promise<boolean>}
+ * A confirm that states its consequences before it offers the verb.
+ *
+ * Used for both the destructive case, where A4 requires the collateral damage to
+ * be itemised, and for C2's clock-out, where what is being confirmed is a total
+ * and a list of things still open behind it. Same dialog, different tone.
+ *
+ * @param {object} options {title, body, collateral:[string], irreversible,
+ *      confirmLabel, danger}
+ * @returns {Promise<boolean>} true only on an explicit confirm
  */
-function confirmDestructive(options={}) {
+function confirmAction(options={}) {
     return new Promise(resolve => {
         const back = document.createElement("div");
         back.className = "confirm-back";
         back.innerHTML = `<div class="confirm" role="dialog" aria-modal="true">
             <h3>${esc(options.title)}</h3>
+            ${options.body ? `<p class="t2 sm" style="margin-top:6px">${esc(options.body)}</p>` : ""}
             ${(options.collateral||[]).length ? `<ul class="collateral">${
                 options.collateral.map(c => `<li>${esc(c)}</li>`).join("")}</ul>` : ""}
-            ${options.irreversible === false ? "" : `<div class="irreversible">This cannot be undone.</div>`}
+            ${options.irreversible ? `<div class="irreversible">This cannot be undone.</div>` : ""}
             <div class="actions">
-                <button class="btn" data-x="cancel">Cancel</button>
-                <button class="btn danger" data-x="confirm">${esc(options.confirmLabel||"Delete")}</button>
+                <button class="btn" data-x="cancel">${esc(options.cancelLabel||"Cancel")}</button>
+                <button class="btn ${options.danger?"danger":"pri"}" data-x="confirm">${esc(options.confirmLabel||"Confirm")}</button>
             </div></div>`;
 
         const done = answer => {back.remove(); document.removeEventListener("keydown", onKey); resolve(answer);};
@@ -185,5 +191,9 @@ function bind(root, handlers={}) {
     }
 }
 
+/** The destructive case: collateral itemised, irreversible stated, danger tone. */
+const confirmDestructive = (options={}) => confirmAction({...options, danger: true,
+    irreversible: options.irreversible !== false, confirmLabel: options.confirmLabel||"Delete"});
+
 export const states = {loading, empty, filteredEmpty, error, offline, denied, degraded, conflict,
-    confirmDestructive, toast, bind, esc};
+    confirmAction, confirmDestructive, toast, bind, esc};

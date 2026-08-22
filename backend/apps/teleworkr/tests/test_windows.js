@@ -228,8 +228,18 @@ async function _testDrift(w) {
         timezone: "Etc/GMT+5", start_minute: 540, end_minute: 1020, days: [1,2,3,4,5],
         valid_from: "2026-08-01"});
 
-    // five workdays of clock-ins at 07:30 local (12:30 UTC)
-    for (const iso of ["2026-08-20", "2026-08-19", "2026-08-18", "2026-08-17", "2026-08-14"])
+    // Five workdays of clock-ins at 07:30 local (12:30 UTC). driftAsync scans the
+    // last N calendar days from the real wall clock, so the fixture dates are
+    // computed relative to today rather than hardcoded — an absolute date here
+    // would silently stop matching the day this test runs after the date it names.
+    // An 8-day span always contains at least 5 weekdays (worst case starts on a
+    // weekend), so 5 is always reachable without overshooting the window.
+    const weekdaysWithinLast8 = [];
+    for (let i = 0; i < 8 && weekdaysWithinLast8.length < 5; i++) {
+        const d = new Date(); d.setUTCDate(d.getUTCDate() - i);
+        if (d.getUTCDay() >= 1 && d.getUTCDay() <= 5) weekdaysWithinLast8.push(d.toISOString().substring(0, 10));
+    }
+    for (const iso of weekdaysWithinLast8)
         await time.recordEventAsync({org_id: w.org_id, person_id: w.bob, entry_date: iso,
             client_event_id: `drift-${iso}`, task_ref: "TASK-1", source: "timer",
             started_at: Math.floor(Date.parse(`${iso}T12:30:00Z`)/1000)});

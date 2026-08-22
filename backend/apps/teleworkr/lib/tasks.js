@@ -109,7 +109,7 @@ exports.addSubtaskAsync = async function(request) {
  * rows name their blocker, its reason and how long it has blocked them, inline.
  *
  * @param {object} request {org_id, actor_person_id, filters {status, project,
- *      assignee_person_id, overdue, q}, page, page_size}
+ *      assignee_person_id, overdue, due_date, q}, page, page_size}
  * @returns {object} {rows, total, page, page_size}
  */
 exports.listTasksAsync = async function(request) {
@@ -122,6 +122,7 @@ exports.listTasksAsync = async function(request) {
     if (filters.project) {where += " AND project=?"; params.push(filters.project);}
     if (filters.assignee_person_id) {where += " AND assignee_person_id=?"; params.push(filters.assignee_person_id);}
     if (filters.overdue) {where += " AND due_date < ? AND status NOT IN ('done','blocked')"; params.push(_today());}
+    if (filters.due_date) {where += " AND due_date=?"; params.push(filters.due_date);}
     if (filters.q) {where += " AND title LIKE ?"; params.push(`%${filters.q}%`);}
 
     const total = (await dblayer.getQueryOrThrow(`SELECT COUNT(*) AS c FROM task WHERE ${where}`, params))[0].c;
@@ -139,6 +140,22 @@ exports.listTasksAsync = async function(request) {
  * comments, the activity trail, and the time log projected from the ledger.
  * @param {object} request {org_id, actor_person_id, task_ref}
  */
+/**
+ * The bare task row plus its live logged time, for a widget that needs to name a
+ * task without pulling its relations, comments and events (taskDetailAsync).
+ * The C1 clock strip is the reason this exists: it names the task the timer is
+ * bound to, nothing more.
+ * @param {object} request {org_id, actor_person_id, task_ref}
+ * @returns The task, with logged_seconds, or null
+ */
+exports.taskSummaryAsync = async function(request) {
+    await _requireAsync(request.org_id, request.actor_person_id, "task.read");
+    const task = await _taskByRefViaAsync(null, request.org_id, request.task_ref);
+    if (!task) return null;
+    const timeLog = await time.eventsForTaskAsync(request.org_id, task.task_ref);
+    return {...task, logged_seconds: _currentLoggedSeconds(timeLog, _now())};
+}
+
 exports.taskDetailAsync = async function(request) {
     await _requireAsync(request.org_id, request.actor_person_id, "task.read");
     const task = await _taskByRefViaAsync(null, request.org_id, request.task_ref);

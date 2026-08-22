@@ -72,6 +72,8 @@ const REGISTER = Object.freeze({
         note: "The truth. time_entry is its projection — this is what lets C5 keep the original value and a reason."},
     timesheet_entry: {shape: SHAPES.EDGE, erasure: ERASURE.PSEUDONYMISE, keep: "7y", anchor: ANCHORS.PERIOD_CLOSED,
         note: "Pins the entry events a submitted week was built from. The snapshot, not the live ledger, is what payroll read."},
+    clock_break: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.PSEUDONYMISE, keep: "7y", anchor: ANCHORS.PERIOD_CLOSED,
+        note: "Not worked time, so it cannot live in the ledger it sits between. Ended by supersession."},
     working_window: {shape: SHAPES.EFFECTIVE_DATED, erasure: ERASURE.ERASE, keep: null, anchor: ANCHORS.NONE,
         note: "People travel and relocate. A current-only window makes E3 retroactively wrong."},
     timesheet: {shape: SHAPES.PERIOD_SNAPSHOT, erasure: ERASURE.PSEUDONYMISE, keep: "7y", anchor: ANCHORS.PERIOD_CLOSED,

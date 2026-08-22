@@ -16,6 +16,7 @@ const windows = require(`${TELEWORKR_CONSTANTS.LIBDIR}/windows.js`);
 const time = require(`${TELEWORKR_CONSTANTS.LIBDIR}/time.js`);
 const calendar = require(`${TELEWORKR_CONSTANTS.LIBDIR}/calendar.js`);
 const clockapi = require(`${TELEWORKR_CONSTANTS.APIDIR}/clock.js`);
+const clock = require(`${TELEWORKR_CONSTANTS.LIBDIR}/clock.js`);
 
 let passed = 0, failed = 0;
 
@@ -25,6 +26,11 @@ const _check = (label, condition, detail) => {
 }
 
 const _today = () => new Date().toISOString().substring(0, 10);
+
+const _checkThrows = async (label, fn) => {
+    try {await fn(); _check(label, false, "expected a refusal, got success");}
+    catch (err) {_check(`${label} — refused: ${err.message.substring(0, 80)}`, true);}
+}
 
 exports.runTestsAsync = async function(argv) {
     if ((!argv[0]) || (argv[0].toLowerCase() != "clock")) {
@@ -38,6 +44,9 @@ exports.runTestsAsync = async function(argv) {
         w = await _buildWorld();
         await _testStatus(w);
         await _testSync(w);
+        await _testClockControl(w);
+        await _testBreaks(w);
+        await _testIdle(w);
         await _testAPI(w);
     } catch (err) {
         failed++; LOG.console(`  FAIL  clock tests threw: ${err}\n`); LOG.error(`Clock tests threw: ${err.stack}`);
@@ -146,11 +155,192 @@ async function _testAPI(w) {
     const undeclared = await clockapi.doService({op: "status", id: w.erinEmail, org: w.org_id});
     _check("op status names an undeclared day",
         undeclared.result === true && undeclared.reason == "undeclared");
+
+    LOG.console("\n the C2 ops over the API\n");
+    const apiDay = "2026-06-19";
+    const t0 = 1781300000;
+
+    const inResult = await clockapi.doService({op: "in", id: w.aliceEmail, org: w.org_id,
+        date: apiDay, at: t0, task_ref: "TASK-API"});
+    _check("op in starts the clock", inResult.result && inResult.session.state == "running", inResult.reason);
+
+    const again = await clockapi.doService({op: "in", id: w.aliceEmail, org: w.org_id, date: apiDay, at: t0+10});
+    _check("op in refuses a second clock with a reason",
+        !again.result && /already running/i.test(again.reason||""), again.reason);
+
+    const session = await clockapi.doService({op: "session", id: w.aliceEmail, org: w.org_id, date: apiDay});
+    _check("op session answers the popover's facts",
+        session.result && session.clocked_in_at == t0 && session.running?.task_ref == "TASK-API");
+
+    const preview = await clockapi.doService({op: "out_preview", id: w.aliceEmail, org: w.org_id,
+        date: apiDay, at: t0 + 1800});
+    _check("op out_preview states the session and its warnings",
+        preview.result && preview.session_seconds == 1800 && Array.isArray(preview.warnings));
+
+    const brk = await clockapi.doService({op: "break_start", id: w.aliceEmail, org: w.org_id,
+        date: apiDay, at: t0 + 1800});
+    _check("op break_start pauses the clock", brk.result && brk.session.state == "break", brk.reason);
+
+    const back = await clockapi.doService({op: "break_end", id: w.aliceEmail, org: w.org_id,
+        date: apiDay, at: t0 + 2100, resume_task_ref: "TASK-API"});
+    _check("op break_end measures the break and resumes",
+        back.result && back.seconds == 300 && back.session.state == "running", back.reason);
+
+    const idle = await clockapi.doService({op: "idle", id: w.aliceEmail, org: w.org_id,
+        date: apiDay, decision: "keep", idle_seconds: 600, at: t0 + 2400});
+    _check("op idle defaults to keeping the time", idle.result && idle.decision == "keep");
+
+    const outResult = await clockapi.doService({op: "out", id: w.aliceEmail, org: w.org_id,
+        date: apiDay, at: t0 + 3600});
+    _check("op out closes the clock and reports what was recorded",
+        outResult.result && outResult.recorded_seconds == 1500 && outResult.session.state == "not_clocked_in",
+        String(outResult.recorded_seconds));
+
+    const bad = await clockapi.doService({op: "nonsense", id: w.aliceEmail, org: w.org_id});
+    _check("an unknown op is refused", !bad.result);
 }
 
 // ---------------------------------------------------------------------------
 // world and cleanup
 // ---------------------------------------------------------------------------
+
+/** C2's one button, driven by state. */
+async function _testClockControl(w) {
+    LOG.console("\n C2 clock control\n");
+    const day = "2026-06-16";     // a day of its own, so the status tests above stay untouched
+    const t0 = 1781000000;
+
+    const started = await clock.clockInAsync({org_id: w.org_id, person_id: w.bob, entry_date: day,
+        at: t0, task_ref: "TASK-9", client_event_id: "cc-in"});
+    _check("clocking in opens an entry bound to the task",
+        started.entry.task_ref == "TASK-9" && started.entry.ended_at === null);
+    _check("the session reports it as running", started.session.state == "running");
+
+    await _checkThrows("clocking in twice is refused", _ =>
+        clock.clockInAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, at: t0+60}));
+
+    const preview = await clock.clockOutPreviewAsync({org_id: w.org_id, person_id: w.bob,
+        entry_date: day, at: t0 + 3600});
+    _check("the clock-out confirm states what will be recorded", preview.session_seconds == 3600);
+    _check("and warns that the timer is running",
+        preview.warnings.some(warning => warning.kind == "timer_running"));
+
+    const switched = await clock.switchTaskAsync({org_id: w.org_id, person_id: w.bob, entry_date: day,
+        task_ref: "TASK-10", at: t0 + 3600, client_event_id: "cc-switch"});
+    _check("switching closes the first entry at the switch",
+        switched.closed.ended_at == t0 + 3600 && switched.closed.duration_seconds == 3600);
+    _check("and opens the next one bound to the new task",
+        switched.entry.task_ref == "TASK-10" && switched.entry.ended_at === null);
+    _check("no time is lost across the switch",
+        switched.session.today_total_seconds >= 3600);
+
+    await _checkThrows("switching to the task already running is refused", _ =>
+        clock.switchTaskAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, task_ref: "TASK-10"}));
+
+    const out = await clock.clockOutAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, at: t0 + 5400});
+    _check("clocking out closes the running entry", out.entry.ended_at == t0 + 5400);
+    _check("and records the second stretch", out.recorded_seconds == 1800);
+    _check("the session is no longer running", out.session.state == "not_clocked_in");
+    _check("the day totals both stretches", out.session.today_total_seconds == 5400,
+        String(out.session.today_total_seconds));
+
+    await _checkThrows("clocking out when nothing runs is refused", _ =>
+        clock.clockOutAsync({org_id: w.org_id, person_id: w.bob, entry_date: day}));
+
+    const events = time.currentEvents(await time.eventsForDayAsync(w.org_id, w.bob, day));
+    _check("the closed entries are two, not four", events.length == 2, String(events.length));
+    const all = await time.eventsForDayAsync(w.org_id, w.bob, day);
+    _check("and the superseded originals are still in the ledger", all.length > events.length);
+}
+
+/** A break is not worked time, and it is its own record. */
+async function _testBreaks(w) {
+    LOG.console("\n breaks\n");
+    const day = "2026-06-17";
+    const t0 = 1781100000;
+
+    await clock.clockInAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, at: t0, task_ref: "TASK-11"});
+    const paused = await clock.startBreakAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, at: t0 + 1800});
+    _check("starting a break stops the clock", paused.session.state == "break");
+    _check("and remembers the task to come back to", paused.resumes_task_ref == "TASK-11");
+    _check("the break is not counted as worked time", paused.session.today_total_seconds == 1800,
+        String(paused.session.today_total_seconds));
+
+    await _checkThrows("a second break is refused while one is open", _ =>
+        clock.startBreakAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, at: t0 + 1900}));
+    await _checkThrows("clocking in during a break is refused", _ =>
+        clock.clockInAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, at: t0 + 1900}));
+
+    const resumed = await clock.endBreakAsync({org_id: w.org_id, person_id: w.bob, entry_date: day,
+        at: t0 + 2520, resume_task_ref: "TASK-11"});
+    _check("ending the break measures it", resumed.seconds == 720);
+    _check("and picks the task back up", resumed.resumed?.task_ref == "TASK-11");
+    _check("the popover can state the break count and total",
+        resumed.session.break_count == 1 && resumed.session.break_seconds == 720);
+
+    const breaks = await clock.breaksAsync(w.org_id, w.bob, day);
+    _check("the break is one current row, superseded not updated", breaks.length == 1 && breaks[0].ended_at !== null);
+    const raw = await dblayer.getQueryOrThrow(
+        "SELECT * FROM clock_break WHERE org_id=? AND person_id=? AND entry_date=?", [w.org_id, w.bob, day]);
+    _check("and the open original survives in the table", raw.length == 2);
+
+    await clock.clockOutAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, at: t0 + 3000});
+}
+
+/** The idle path, where the product is most easily made untrustworthy. */
+async function _testIdle(w) {
+    LOG.console("\n idle — keep is the default, and a discard is never silent\n");
+    const day = "2026-06-18";
+    const t0 = 1781200000;
+
+    await clock.clockInAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, at: t0, task_ref: "TASK-12"});
+    const kept = await clock.resolveIdleAsync({org_id: w.org_id, person_id: w.bob, entry_date: day,
+        decision: "keep", idle_seconds: 600, at: t0 + 3600});
+    _check("keeping idle time changes nothing", kept.entry === null && kept.session.state == "running");
+
+    const discarded = await clock.resolveIdleAsync({org_id: w.org_id, person_id: w.bob, entry_date: day,
+        decision: "discard", idle_seconds: 600, at: t0 + 3600});
+    _check("discarding trims the entry to where the person stopped",
+        discarded.entry.ended_at == t0 + 3000);
+    _check("the discard carries its reason", /idle/i.test(discarded.entry.reason||""));
+
+    const ledger = await time.eventsForDayAsync(w.org_id, w.bob, day);
+    _check("the original entry is still in the ledger, not deleted",
+        ledger.some(event => event.entry_event_id == discarded.entry.supersedes_entry_event_id));
+
+    await _checkThrows("a discard with no amount is refused", _ =>
+        clock.resolveIdleAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, decision: "discard"}));
+    await _checkThrows("an unknown resolution is refused", _ =>
+        clock.resolveIdleAsync({org_id: w.org_id, person_id: w.bob, entry_date: day,
+            decision: "delete_it_all", idle_seconds: 60}));
+
+    // resolving as a break: the day still adds up, the interval moves where it belongs
+    await clock.clockInAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, at: t0 + 3600, task_ref: "TASK-12"});
+    const asBreak = await clock.resolveIdleAsync({org_id: w.org_id, person_id: w.bob, entry_date: day,
+        decision: "break", idle_seconds: 900, at: t0 + 5400});
+    _check("resolving idle as a break trims the entry", asBreak.entry.ended_at == t0 + 4500);
+    _check("records the break", asBreak.session.break_seconds == 900,
+        String(asBreak.session.break_seconds));
+    _check("and the clock picks up again on the same task", asBreak.session.state == "running" &&
+        asBreak.session.running?.task_ref == "TASK-12");
+
+    const zero = await clock.clockOutAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, at: t0 + 5400});
+    _check("clocking out in the same second the clock resumed still succeeds",
+        zero.recorded_seconds === 0, String(zero.recorded_seconds));
+
+    await _checkThrows("trimming an entry to nothing is refused, clock out instead", async _ => {
+        await clock.clockInAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, at: t0 + 6000, task_ref: "TASK-13"});
+        return clock.resolveIdleAsync({org_id: w.org_id, person_id: w.bob, entry_date: day,
+            decision: "discard", idle_seconds: 9999, at: t0 + 6060});
+    });
+    await clock.clockOutAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, at: t0 + 6100});
+
+    await _checkThrows("a clock-out before the entry started is still refused", async _ => {
+        await clock.clockInAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, at: t0 + 7000});
+        return clock.clockOutAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, at: t0 + 6000});
+    });
+    await clock.clockOutAsync({org_id: w.org_id, person_id: w.bob, entry_date: day, at: t0 + 7200});
+}
 
 async function _buildWorld() {
     const stamp = Date.now();
@@ -184,6 +374,8 @@ async function _buildWorld() {
 async function _cleanup(w) {
     if (!w?.org_id) return;
     await dblayer.runCmdBestEffortAsync("DELETE FROM time_entry_event WHERE org_id=?", [w.org_id]);
+    await dblayer.runCmdBestEffortAsync("DELETE FROM clock_break WHERE org_id=?", [w.org_id]);
+    await dblayer.runCmdBestEffortAsync("DELETE FROM task WHERE org_id=?", [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM working_window WHERE org_id=?", [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM audit_event WHERE org_id=?", [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM role_capability WHERE org_id=?", [w.org_id]);

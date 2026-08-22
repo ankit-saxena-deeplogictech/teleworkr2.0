@@ -16,8 +16,17 @@
 import {session} from "/framework/js/session.mjs";
 import {apimanager as apiman} from "/framework/js/apimanager.mjs";
 import {states} from "./states.mjs";
+import {render as renderDayBoard} from "./screens/dayboard.mjs";
 
 const API_SHELL = "shell", API_CLOCK = "clock";
+
+/**
+ * Screens land one increment at a time. A surface with no entry here still shows
+ * — the catalogue and the person's access to it are already decided by A7 — but
+ * renders the "not built yet" placeholder instead of a page. Adding a screen is
+ * one line here, not a branch in setSurface.
+ */
+const SCREENS = {day: renderDayBoard};
 const CLOCK_POLL_MS = 30000;        // the server is the record; the local tick is only the seconds between polls
 const THEME_KEY = "__teleworkr_theme";
 
@@ -98,8 +107,13 @@ function setSurface(surfaceId) {
 
     const surface = _surface(surfaceId);
     const root = document.querySelector("#surface");
-    // Screens land one increment at a time. Until a surface has one, say so plainly
-    // rather than rendering an empty page that looks like a bug.
+
+    const screen = SCREENS[surfaceId];
+    if (screen) {screen(root); return;}
+
+    // No screen registered yet. Say so plainly rather than rendering an empty
+    // page that looks like a bug — access to the surface is already decided,
+    // only the screen itself is still pending.
     root.innerHTML = `<div class="page">
         <h2 class="disp" style="font-size:19px">${states.esc(surface.label)}</h2>
         <p class="t2 sm" style="margin-top:4px">Wireframe ${states.esc(surface.screen)} · ${states.esc(surface.classification)} surface</p>
@@ -236,6 +250,63 @@ const _hms = total => {
 
 const _hm = total => `${Math.floor(total/3600)}h ${String(Math.floor((total%3600)/60)).padStart(2,"0")}m`;
 
+/**
+ * C2's one button, driven by state. Clocking in is immediate — hesitating in front
+ * of a dialog is how the first ten minutes of a day go unrecorded. Clocking out
+ * confirms, because it states a total that is about to become the record.
+ */
+async function toggleClock() {
+    const button = document.querySelector("#clock-act");
+    if (button.disabled) return;
+    button.disabled = true;
+
+    try {
+        if (!clockState?.running) {
+            const started = await _clockOp("in");
+            if (started) states.toast({message: `Clocked in at ${_time(started.entry?.started_at)}.`});
+            return;
+        }
+
+        const preview = await _clockOp("out_preview");
+        if (!preview) return;
+
+        const confirmed = await states.confirmAction({
+            title: `Clock out at ${_time(preview.at)}?`,
+            body: `${_hm(preview.session_seconds)} will be recorded for today, bringing the day to ${
+                _hm(preview.today_total_seconds)}.`,
+            collateral: preview.warnings.map(warning => warning.message),
+            confirmLabel: "Clock out"});
+        if (!confirmed) return;
+
+        const stopped = await _clockOp("out");
+        if (stopped) states.toast({message: `Clocked out. ${_hm(stopped.recorded_seconds)} recorded.`});
+    } finally {
+        button.disabled = false;
+        await _refreshClock();
+    }
+}
+
+/**
+ * One place where a clock operation can fail, so the failure is stated once and
+ * the same way. A refused clock action says why — the engine already explains
+ * itself, and swallowing that into "something went wrong" wastes it.
+ */
+async function _clockOp(op, extra={}) {
+    let response; try {
+        response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/${API_CLOCK}`, "GET", {op, ..._me(), ...extra}, true);
+    } catch (err) {response = null; LOG.error(`Clock op ${op} failed: ${err}`);}
+
+    if (!response || !response.result) {
+        states.toast({message: response?.reason || "The clock could not be reached. Your recorded time is safe.",
+            ms: 8000});
+        return null;
+    }
+    return response;
+}
+
+const _time = seconds => seconds ?
+    new Date(seconds*1000).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"}) : "now";
+
 // ---------------------------------------------------------------------------
 
 function _wireChrome() {
@@ -255,8 +326,7 @@ function _wireChrome() {
         projection && _canReach("team") ? setSurface("team") :
             states.toast({message: "The overlap board is not part of your product."}));
 
-    document.querySelector("#clock-act").addEventListener("click", _ =>
-        states.toast({message: "Clocking in and out lands with the day board (C1)."}));
+    document.querySelector("#clock-act").addEventListener("click", _ => toggleClock());
 
     document.querySelector("#notifbtn").addEventListener("click", _ =>
         states.toast({message: "The notification panel (A9) is not built yet."}));
@@ -293,5 +363,5 @@ function stopShell() {
     clockTimer = pollTimer = null;
 }
 
-export const shell = {initShell, refreshProjection, setSurface, stopShell,
+export const shell = {initShell, refreshProjection, setSurface, stopShell, toggleClock,
     get projection() {return projection;}};
