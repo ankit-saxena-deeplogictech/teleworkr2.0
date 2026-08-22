@@ -9,8 +9,15 @@
 	import {tkmlogin} from "./3p/tkmlogin.mjs"; 
 	import {router} from "/framework/js/router.mjs";
 	import {loginmanager} from "./js/loginmanager.mjs"; 
- 
-    const verifyResponse = await tkmlogin.verify("{{{APP_CONSTANTS.API_PATH}}}/login?op=verify&x-api-key={{{LOGIN_API_KEY}}}", 
+	import {APP_CONSTANTS as RAW_CONSTANTS} from "./js/constants.mjs";
+
+	// The verify URL is built here rather than relying on the page-load
+	// interceptor, so the API key can never be missing from the JWT check.
+	const BASE = window.APP_CONSTANTS || RAW_CONSTANTS;
+	const API_KEY = (BASE.API_KEYS && BASE.API_KEYS["*"]) || RAW_CONSTANTS.API_KEYS["*"] || "";
+	const VERIFY_API = `${BASE.API_PATH || RAW_CONSTANTS.API_PATH}/login?op=verify&x-api-key=${encodeURIComponent(API_KEY)}`;
+
+    const verifyResponse = await tkmlogin.verify(VERIFY_API, 
 		router.decodeURL(window.location.href));
 	loginmanager.handleLoginResult(verifyResponse);
 	</script>

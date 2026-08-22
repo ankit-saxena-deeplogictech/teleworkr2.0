@@ -73,9 +73,9 @@ function startAutoLogoutTimer() {
 
 const interceptPageLoadData = _ => {
     $$.librouter.addOnLoadPageData(APP_CONSTANTS.LOGIN_HTML, async (data, _url) => {
-	    data.LOGIN_API_KEY = apiman.getAPIKeyFor(`${APP_CONSTANTS.API_PATH}}/login`); });
+            data.LOGIN_API_KEY = apiman.getAPIKeyFor(`${APP_CONSTANTS.API_PATH}/login`); });
     $$.librouter.addOnLoadPageData(APP_CONSTANTS.LOGINRESULT_HTML, async (data, _url) => {
-        data.LOGIN_API_KEY = apiman.getAPIKeyFor(`${APP_CONSTANTS.API_PATH}}/login`); });
+        data.LOGIN_API_KEY = apiman.getAPIKeyFor(`${APP_CONSTANTS.API_PATH}/login`); });
 }
 
 const isAdmin = _ => session.get(APP_CONSTANTS.CURRENT_USERROLE).toString() == "admin";

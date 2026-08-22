@@ -1,129 +1,158 @@
 <style>
+/*
+ * The sign-in page, built from the hifi v1.6 "Welcome back" screen —
+ * one hero, one sign-in card, and the trust line under the button.
+ * (C) 2026 TekMonks. All rights reserved.
+ */
+
 body {
-	margin: 0em; padding: 0;
-	font-family: sans-serif;
-	background-color: #4fb3ed52;
-	width: 100%;
-	height: 100%;
+	margin: 0; padding: 0;
+	font-family: var(--f-body);
+	background:
+		radial-gradient(1100px 500px at 15% -10%, var(--brand-w), transparent 60%),
+		radial-gradient(900px 500px at 110% 110%, var(--plum-w), transparent 60%),
+		var(--void);
+	color: var(--t1);
+	min-height: 100vh;
 	display: flex;
 	flex-direction: column;
-	justify-content: space-between;
 }
 
-div#loginmain {
+div.login {
+	flex: 1;
 	display: flex;
 	flex-direction: row;
-	row-gap: 1em;
 	align-items: center;
-	justify-content: space-evenly;
-	height: 100%;
+	justify-content: center;
+	gap: clamp(2em, 7vw, 7em);
+	padding: 3em 2em;
+	flex-wrap: wrap;
 }
 
-a:link {text-decoration:none; color:black;}    /* unvisited link */
-a:visited {text-decoration:none;} /* visited link */
-a:hover {text-decoration:underline;}   /* mouse over link */
-a:active {text-decoration:underline;}  /* selected link */
-
-div#advtextbox{
-	color: #4c4c4c;
-	text-align: center;
-	width: 40%;
-	overflow: hidden;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	box-sizing: border-box;
+/* ── the hero ── */
+div.hero { max-width: 460px; display: flex; flex-direction: column; gap: 16px; }
+div.hero .mark { display: flex; align-items: center; gap: 10px; }
+div.hero .mark img { height: 34px; }
+div.hero .mark span { font-family: var(--f-display); font-weight: 600; font-size: 14px; }
+div.hero h1 {
+	font-family: var(--f-display); font-size: clamp(26px, 3.4vw, 38px);
+	font-weight: 600; letter-spacing: -.02em; line-height: 1.12; margin: 0;
 }
-div#advtextbox img#logo {width: 100%;}
-div#advtextbox h1 {font-weight: 250;}
-div#advtextbox h2 {font-weight: 250; font-size: medium;}
-div#advtextbox span.button {
-	background-color: #ffffff;
-	border-radius: 1em;
-	padding: 1em;
-	font-size: smaller;
-	margin-top: 1em;
-	cursor: pointer;
-	width: 8em;
-	color: #4c4c4c;
+div.hero p.sub { color: var(--t2); font-size: 14.5px; line-height: 1.6; margin: 0; }
+div.hero .trust { display: flex; gap: 8px; flex-wrap: wrap; }
+div.hero .trust span {
+	font-family: var(--f-data); font-size: 10.5px; letter-spacing: .06em;
+	color: var(--t3); background: var(--panel); border: 1px solid var(--stroke);
+	border-radius: 99px; padding: 5px 12px;
 }
 
-div#lgbox {
-	background-color: #ffffff;
-	border-radius: 2em;
-	padding: 2em 4em;
+/* ── the sign-in card ── */
+div.panel {
+	width: 380px; max-width: 92vw;
+	background: var(--panel); border: 1px solid var(--stroke-2);
+	border-radius: var(--r-xl); box-shadow: var(--drop);
+	padding: 30px 30px 22px;
+	display: flex; flex-direction: column; gap: 12px;
 	cursor: default;
-	transition: all 0.3s ease-out;
+	transition: transform .25s var(--ease), border-color .25s var(--ease);
 }
-div#lgbox:hover {transform: scale(1.02); cursor: pointer;}
-div#lgbox span {
-	width: 100%;
-	display: block;
-	margin-top: 0.5em;
-	text-align: center;
-	font-weight: lighter;
-	color: #4c4c4c;
+div.panel:hover { transform: translateY(-2px); border-color: var(--stroke-2); }
+div.panel h2 { font-family: var(--f-display); font-size: 20px; margin: 0; }
+div.panel p.lead { color: var(--t2); font-size: 13px; line-height: 1.6; margin: 0; }
+div.panel p.lead b { color: var(--t1); }
+div.panel .cta {
+	display: flex; align-items: center; justify-content: center; gap: 8px;
+	background: var(--brand); color: #fff; border: none; border-radius: var(--r-md);
+	font-family: var(--f-display); font-weight: 600; font-size: 14px;
+	padding: 12px 16px; cursor: pointer; transition: .18s var(--ease);
 }
-div#lgbox span.error {color: #b54646}
-div#lgbox img {height: 4em; width: 100%;}
+div.panel .cta:hover { filter: brightness(1.12); }
+div.panel .cta img { height: 16px; }
+div.panel span.error { color: var(--ember); font-size: 12.5px; text-align: center; }
+div.panel p.note { color: var(--t3); font-size: 11.5px; text-align: center; margin: 2px 0 0; }
+div.panel p.note b { color: var(--mint); font-weight: 500; }
 
-.langbox {
-	color: 4c4c4c;
-	text-align: center;
-	cursor: default;
-	margin-bottom: 1em;
+/* ── footer ── */
+div.langbox {
+	display: flex; align-items: center; justify-content: space-between;
+	padding: 1em 1.4em; color: var(--t3); font-size: 11.5px; cursor: default;
 }
-.langsel {
-	cursor: pointer;
-	font-size: 11px;
-}
+.langsel { cursor: pointer; margin-right: 8px; }
+.langsel:hover { color: var(--t1); }
 </style>
 {{{APP_CONSTANTS.MOBILE_MEDIA_QUERY_PORTRAIT_START}}}
-	div#loginmain {flex-direction: column; margin-bottom: 1em;}
-	div#advtextbox {margin-top: 1.5em; margin-bottom: 0.5em; width: 80%;}
-	div#advtextbox img#logo { width: 60%; }
-	div#lgbox { padding: 1em 2em; }
+	div.login { flex-direction: column; gap: 2em; padding: 2em 1.2em; }
+	div.hero { align-items: center; text-align: center; }
+	div.panel { width: 100%; }
+	div.langbox { flex-direction: column; gap: 6px; }
 {{{APP_CONSTANTS.MOBILE_MEDIA_QUERY_PORTRAIT_END}}}
 
 <!doctype html>
 <html>
 <head>
 	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
 
 	<link href="./img/favicon.svg" rel="icon" type="image/svg+xml">
-	
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="./css/tokens.css">
+
 	<title>{{i18n.Title}}</title>
-	
+
 	<script type="module">
 	import {language} from "./js/language.mjs"; monkshu_env.apps[APP_CONSTANTS.APP_NAME].language = language;
 	import {tkmlogin} from "{{{APP_CONSTANTS.TKMLOGIN_LIB}}}"; monkshu_env.apps[APP_CONSTANTS.APP_NAME].tkmlogin = tkmlogin;
+	import {APP_CONSTANTS as RAW_CONSTANTS} from "./js/constants.mjs";
+
+	// The sign-in click is bound here rather than relying on the page-load
+	// interceptor, so the API key can never be missing from the OTK call.
+	const BASE = window.APP_CONSTANTS || RAW_CONSTANTS;
+	const API_KEY = (BASE.API_KEYS && BASE.API_KEYS["*"]) || RAW_CONSTANTS.API_KEYS["*"] || "";
+	const OTK_API = `${BASE.API_PATH || RAW_CONSTANTS.API_PATH}/login?op=getotk&x-api-key=${encodeURIComponent(API_KEY)}`;
+	const REDIRECT = "{{#_org_monkshu_makeLink}}{{{APP_CONSTANTS.LOGINRESULT_HTML}}}{{/_org_monkshu_makeLink}}";
+	const UNIFIED = (BASE.TKMLOGINAPP_URL) || "https://login.tekmonks.com";
+
+	document.getElementById("lgbox").addEventListener("click", _ =>
+		tkmlogin.login("Teleworkr", REDIRECT, OTK_API, "#4fb3eddb", UNIFIED));
+	document.getElementById("lgbox").addEventListener("keydown", event => {
+		if (event.key == "Enter" || event.key == " ") {event.preventDefault();
+			tkmlogin.login("Teleworkr", REDIRECT, OTK_API, "#4fb3eddb", UNIFIED);}});
 	</script>
 </head>
 
 <body>
-<div id="loginmain">
-<div id="advtextbox">
-	<img id="logo" src="./img/logo.svg">
-	<h1>{{i18n.logintagline}}</h1>
-	<h2 id="advh2">{{i18n.loginsubtag}}</h2>
-	<span id="advlearnmore" class="button" onclick="window.open(APP_CONSTANTS.ABOUT_URL, '_blank')">{{i18n.LearnMore}}</span>
-</div>
+<div class="login">
+	<div class="hero">
+		<div class="mark"><img src="./img/logo.svg" alt=""><span>TeleWorkr <span class="t3">by Tekmonks</span></span></div>
+		<h1>All-in-one digital office for remote work.</h1>
+		<p class="sub">The features of a physical office, replicated — accountability,
+			connectivity, communication and transparency — in one product rather than nine.</p>
+		<div class="trust"><span>Zero Trust</span><span>No VPN</span><span>AES-256</span><span>ISO 9001:2016</span></div>
+	</div>
 
-<div id="lgbox" onclick='monkshu_env.apps[APP_CONSTANTS.APP_NAME].tkmlogin.login("{{{i18n.Title}}}",
-		"{{#_org_monkshu_makeLink}}{{{APP_CONSTANTS.LOGINRESULT_HTML}}}{{/_org_monkshu_makeLink}}", 
-		"{{{APP_CONSTANTS.API_PATH}}}/login?op=getotk&x-api-key={{{LOGIN_API_KEY}}}", "#4fb3eddb", 
-		"{{{APP_CONSTANTS.TKMLOGINAPP_URL}}}",)'>
-	<img src="./img/tkmlogodark.svg">
-	{{#url._error}}<span class="error">{{i18n.LoginFailed}}</span>{{/url._error}}
-	<span>{{i18n.LoginMsg}}</span>
-</div>
+	<div class="panel" id="lgbox" role="button" tabindex="0">
+		<h2>Welcome back</h2>
+		<p class="lead">Your organisation uses <b>Tekmonks</b> for identity. Password sign-in
+			is available only to break-glass administrators.</p>
+		<button class="cta" aria-label="Sign in with Tekmonks">
+			<img src="./img/tkmlogodark.svg" alt=""> Continue with Tekmonks
+		</button>
+		{{#url._error}}<span class="error">{{i18n.LoginFailed}}</span>{{/url._error}}
+		<p class="note">Zero Trust · phishing-resistant MFA · biometrics supported</p>
+	</div>
 </div>
 
 <div class="langbox">
-	<span class="langsel" onclick="monkshu_env.apps[APP_CONSTANTS.APP_NAME].language.changeLanguage('en')">English</span>&nbsp;&nbsp;
-	<span class="langsel" onclick="monkshu_env.apps[APP_CONSTANTS.APP_NAME].language.changeLanguage('hi')">हिंदी</span>&nbsp;&nbsp;
-	<span class="langsel" onclick="monkshu_env.apps[APP_CONSTANTS.APP_NAME].language.changeLanguage('ja')">日本語</span>
-</div>	
+	<span>
+		<span class="langsel" onclick="monkshu_env.apps[APP_CONSTANTS.APP_NAME].language.changeLanguage('en')">English</span>
+		<span class="langsel" onclick="monkshu_env.apps[APP_CONSTANTS.APP_NAME].language.changeLanguage('hi')">हिंदी</span>
+		<span class="langsel" onclick="monkshu_env.apps[APP_CONSTANTS.APP_NAME].language.changeLanguage('ja')">日本語</span>
+	</span>
+	<span>© 2026 Tekmonks · Privacy · Status</span>
+</div>
+
 </body>
 
 </html>
