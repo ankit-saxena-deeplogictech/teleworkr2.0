@@ -17,6 +17,8 @@ import {session} from "/framework/js/session.mjs";
 import {apimanager as apiman} from "/framework/js/apimanager.mjs";
 import {states} from "./states.mjs";
 import {render as renderDayBoard} from "./screens/dayboard.mjs";
+import {render as renderTraining} from "./screens/training.mjs";
+import {render as renderSurveys} from "./screens/surveys.mjs";
 
 const API_SHELL = "shell", API_CLOCK = "clock";
 
@@ -26,7 +28,8 @@ const API_SHELL = "shell", API_CLOCK = "clock";
  * renders the "not built yet" placeholder instead of a page. Adding a screen is
  * one line here, not a branch in setSurface.
  */
-const SCREENS = {day: renderDayBoard};
+const SCREENS = {day: renderDayBoard, training: renderTraining, trainingtrack: renderTraining,
+    surveys: renderSurveys};
 const CLOCK_POLL_MS = 30000;        // the server is the record; the local tick is only the seconds between polls
 const THEME_KEY = "__teleworkr_theme";
 

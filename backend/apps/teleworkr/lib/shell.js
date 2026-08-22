@@ -71,7 +71,20 @@ const SURFACES = Object.freeze({
     people:    {console: "Admin", label: "People & import", screen: "B5", order: 110, classification: CLASS.EXCLUSIVE,
         capability: "people.import"},
     audit:     {console: "Admin", label: "Audit log",   screen: "H4", order: 120, classification: CLASS.EXCLUSIVE,
-        any_of: ["audit.read_all", "audit.read_policy"]}
+        any_of: ["audit.read_all", "audit.read_policy"]},
+
+    // The Assigned group (P2 item 5): training, certificates and surveys share
+    // one nav group, because from a person's side all three are the same thing —
+    // something the organisation has asked of you, with a deadline.
+    training:  {console: "Assigned", label: "Training & certificates", screen: "P2", order: 130, classification: CLASS.SHARED},
+    surveys:   {console: "Assigned", label: "Surveys",   screen: "Q2", order: 140, classification: CLASS.SHARED},
+
+    // The other side of the same two modules — assign & track (P6) and build &
+    // publish (Q5) — reached by the capability, never by a role fork.
+    trainingtrack: {console: "Admin", label: "Training — assign & track", screen: "P6", order: 150, classification: CLASS.EXCLUSIVE,
+        capability: "training.track"},
+    surveybuild:   {console: "Admin", label: "Surveys — build & publish", screen: "Q5", order: 160, classification: CLASS.EXCLUSIVE,
+        capability: "survey.publish"}
 });
 
 /**

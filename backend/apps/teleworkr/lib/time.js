@@ -37,8 +37,8 @@ const STATUS = Object.freeze({OPEN: "open", SUBMITTED: "submitted", RETURNED: "r
 const DAY_SECONDS = 86400;
 
 const EVENT_COLS = "entry_event_id, org_id, person_id, client_event_id, entry_date, task_ref, project, " +
-    "client_code, note, billable, started_at, ended_at, duration_seconds, source, signal, reconstructed, " +
-    "supersedes_entry_event_id, reason, recorded_at";
+    "client_code, note, billable, started_at, ended_at, duration_seconds, source, category, signal, " +
+    "reconstructed, supersedes_entry_event_id, reason, recorded_at";
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const _now = _ => Math.floor(Date.now()/1000);
@@ -59,7 +59,7 @@ const _today = _ => new Date().toISOString().substring(0, 10);
  *
  * @param {object} event {org_id, person_id, client_event_id, entry_date, task_ref,
  *      project, client_code, note, billable, started_at, ended_at, duration_seconds,
- *      source, signal, reconstructed}
+ *      source, category, signal, reconstructed}
  * @returns The stored event
  */
 exports.recordEventAsync = async function(event) {
@@ -71,7 +71,7 @@ exports.recordEventAsync = async function(event) {
 
     try {
         await dblayer.runCmdOrThrow(
-            `INSERT INTO time_entry_event (${EVENT_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            `INSERT INTO time_entry_event (${EVENT_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
             _eventParams(row));
     } catch (err) {
         // a concurrent retry may have won the race between lookup and insert — that is still the same event
@@ -112,7 +112,7 @@ exports.syncEventsAsync = async function(org_id, person_id, events) {
             }
             try {
                 await dblayer.runCmdOrThrow(
-                    `INSERT INTO time_entry_event (${EVENT_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                    `INSERT INTO time_entry_event (${EVENT_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
                     _eventParams(row));
                 results.push({client_event_id: id, result: "stored", entry_event_id: row.entry_event_id});
             } catch (err) {
@@ -135,13 +135,14 @@ function _payloadEquals(existing, row) {
         existing.duration_seconds == row.duration_seconds &&
         existing.entry_date == row.entry_date &&
         (existing.task_ref || null) == (row.task_ref || null) &&
+        (existing.category || null) == (row.category || null) &&
         existing.source == row.source;
 }
 
 function _syncSummary(event) {
     return {started_at: event.started_at, ended_at: event.ended_at,
         duration_seconds: event.duration_seconds, entry_date: event.entry_date,
-        task_ref: event.task_ref};
+        task_ref: event.task_ref, category: event.category};
 }
 
 /**
@@ -495,7 +496,8 @@ function _prepareEvent(event, reason) {
         client_code: event.client_code || null, note: event.note || null,
         billable: event.billable === undefined ? 1 : (event.billable ? 1 : 0),
         started_at: started_at || null, ended_at: ended_at || null,
-        duration_seconds, source, signal: event.signal || null,
+        duration_seconds, source, category: event.category || null,
+        signal: event.signal || null,
         reconstructed: event.reconstructed ? 1 : 0,
         supersedes_entry_event_id: event.supersedes_entry_event_id || null,
         reason: reason || null, recorded_at: _now()};
@@ -504,8 +506,8 @@ function _prepareEvent(event, reason) {
 function _eventParams(row) {
     return [row.entry_event_id, row.org_id, row.person_id, row.client_event_id, row.entry_date,
         row.task_ref, row.project, row.client_code, row.note, row.billable,
-        row.started_at, row.ended_at, row.duration_seconds, row.source, row.signal,
-        row.reconstructed, row.supersedes_entry_event_id, row.reason, row.recorded_at];
+        row.started_at, row.ended_at, row.duration_seconds, row.source, row.category,
+        row.signal, row.reconstructed, row.supersedes_entry_event_id, row.reason, row.recorded_at];
 }
 
 async function _byClientEventIdAsync(org_id, person_id, client_event_id) {
@@ -517,9 +519,22 @@ async function _byClientEventIdAsync(org_id, person_id, client_event_id) {
 
 async function _appendEventViaAsync(exec, event) {
     const row = _prepareEvent(event, event.reason);
-    await exec.runCmd(`INSERT INTO time_entry_event (${EVENT_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    await exec.runCmd(`INSERT INTO time_entry_event (${EVENT_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         _eventParams(row));
     return row;
+}
+
+/**
+ * The exec-aware write for modules that must land a time entry inside their own
+ * transaction (training, P1 — a completed module writes its time in the same
+ * transaction as its progress event, so neither can exist without the other).
+ *
+ * @param {object} exec The transaction executor from runInTransactionAsync
+ * @param {object} event As for recordEventAsync
+ * @returns The stored event
+ */
+exports.insertEventViaAsync = function(exec, event) {
+    return _appendEventViaAsync(exec, event);
 }
 
 async function _getEventViaAsync(exec, org_id, entry_event_id) {
@@ -530,7 +545,7 @@ async function _getEventViaAsync(exec, org_id, entry_event_id) {
 
 function _applyChanges(original, changes) {
     const editable = ["duration_seconds", "task_ref", "project", "client_code", "note", "billable",
-        "started_at", "ended_at", "entry_date"];
+        "started_at", "ended_at", "entry_date", "category"];
     const unknown = Object.keys(changes).filter(key => !editable.includes(key));
     if (unknown.length) throw new Error(`Unknown change fields: ${unknown.join(", ")}.`);
 
@@ -546,6 +561,7 @@ function _applyChanges(original, changes) {
         // changing the times recomputes the duration unless the caller supplied one
         duration_seconds: changes.duration_seconds !== undefined ? changes.duration_seconds :
             ((changes.started_at !== undefined || changes.ended_at !== undefined) ? undefined : original.duration_seconds),
+        category: changes.category !== undefined ? changes.category : original.category,
         source: original.source, signal: original.signal, reconstructed: original.reconstructed};
 }
 

@@ -16,6 +16,9 @@
     "/apps/{{app}}/dayboard" : "/apis/dayboard.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/clock" : "/apis/clock.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/notifications" : "/apis/notifications.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
+    "/apps/{{app}}/training" : "/apis/training.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
+    "/apps/{{app}}/certverify" : "/apis/training.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=false",
+    "/apps/{{app}}/surveys" : "/apis/surveys.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/events" : "/apis/events.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/sseevents" : "/apis/sseevents.js?get=true&sse=true&sseint=3000&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/appevents" : "/{{server_apis}}/appevents.js?get=true&sse=true&sseint=2000&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389"

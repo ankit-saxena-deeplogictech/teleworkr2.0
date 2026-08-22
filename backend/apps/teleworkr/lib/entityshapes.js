@@ -119,7 +119,25 @@ const REGISTER = Object.freeze({
     stage_transition: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.ERASE, keep: "6m", anchor: ANCHORS.REQUISITION_CLOSED,
         note: "Produced by the workflow engine, never by a drag."},
     signal_ledger_entry: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.ERASE, keep: "13m", anchor: ANCHORS.SIGNAL_EVALUATED,
-        note: "Reads six tables, writes one. The wellbeing module adds no new collection — that is what makes it defensible."}
+        note: "Reads six tables, writes one. The wellbeing module adds no new collection — that is what makes it defensible."},
+
+    // --- training (P1 item 8: erasure declared here, not decided in L3's queue) ---
+    course_version: {shape: SHAPES.VERSIONED_POINTER, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.NONE,
+        note: "Not personal data. You must be able to show what the course said when someone passed it."},
+    course_assignment: {shape: SHAPES.EDGE, erasure: ERASURE.PSEUDONYMISE, keep: "7y", anchor: ANCHORS.EMPLOYMENT_ENDED,
+        note: "person × course × due × reason. The obligation's tone travels with the assignment."},
+    course_progress_event: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.ERASE, keep: "13m", anchor: ANCHORS.OCCURRED,
+        note: "Which module you replayed four times has no retention basis. The pass survives via the certificate; the struggle doesn't."},
+    certificate: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.PSEUDONYMISE, keep: "7y", anchor: ANCHORS.EMPLOYMENT_ENDED,
+        note: "Statutory compliance evidence outlives employment. A record, not a file — the PDF is rendered from it."},
+
+    // --- surveys (Q1: the anonymity contract is structural) ---
+    survey_version: {shape: SHAPES.VERSIONED_POINTER, erasure: ERASURE.RETAIN, keep: null, anchor: ANCHORS.NONE,
+        note: "Not personal data. The anonymity mode is fixed at publish and can never change afterwards."},
+    survey_invitation: {shape: SHAPES.EDGE, erasure: ERASURE.ERASE, keep: "13m", anchor: ANCHORS.OCCURRED,
+        note: "That you were asked, and whether you responded — never what you answered. Not written at all in anonymous mode."},
+    survey_response_event: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.RETAIN, keep: null, anchor: ANCHORS.NONE,
+        note: "Already anonymous in confidential and anonymous modes — the point, and it means an erasure request cannot damage a result. Attributed responses carry person_id by design."}
 });
 
 /**

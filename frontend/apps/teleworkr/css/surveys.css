@@ -1,0 +1,92 @@
+/*
+ * Q — the surveys screen's layout. Shared band/empty/bar primitives live in
+ * training.css (both files are always loaded).
+ *
+ * The anonymity contract is rendered, not only stated: the mode badge is on
+ * every list card and the questionnaire footer restates the promise — that
+ * is the thing a person is deciding to trust with each answer, not once at
+ * the start (Q3). Free-text warnings sit beside the field, and the results
+ * side renders counts as bars, never as a list of names wearing a chart.
+ *
+ * (C) 2026 TekMonks. All rights reserved.
+ * License: See the enclosed LICENSE file.
+ */
+
+/* ── Q2 the list ── */
+.sv-card { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--r-lg);
+    padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; }
+.sv-card.closed { opacity: .8; }
+.sv-card-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sv-card h3 { font-size: 15px; }
+.sv-mode { font-family: var(--f-data); font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 6px; }
+.m-attributed { color: var(--iris); background: var(--iris-w); }
+.m-confidential { color: var(--mint); background: var(--mint-w); }
+.m-anonymous { color: var(--plum); background: var(--plum-w); }
+.sv-brief { display: flex; flex-direction: column; gap: 3px; background: var(--raise);
+    border-radius: var(--r-md); padding: 11px 13px; }
+.sv-brief p { margin: 0; }
+
+/* ── Q3 the questionnaire ── */
+.sv-take { display: flex; flex-direction: column; gap: 14px; }
+.sv-take-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.sv-take-head h2 { font-size: 18px; }
+.sv-section { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--r-lg);
+    padding: 16px; }
+.sv-section .up { margin-bottom: 4px; }
+.sv-saved { display: inline-block; font-size: 10px; color: var(--mint); margin: 2px 0 0; }
+.sv-footer { background: var(--raise); border-radius: var(--r-md); padding: 11px 13px;
+    display: flex; flex-direction: column; gap: 4px; }
+.sv-footer p { margin: 0; }
+.sv-submit { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+
+/* the question card — shared by P4 and Q3, styled once */
+.q-card { background: var(--raise); border-radius: var(--r-md); padding: 13px 15px;
+    border: 1px solid transparent; transition: border-color .15s var(--ease); }
+.q-card.skipped { opacity: .65; }
+.q-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 9px; }
+.q-num { font-family: var(--f-data); font-size: 10px; color: var(--t3); background: var(--panel);
+    border-radius: 6px; padding: 2px 7px; flex: none; }
+.q-text-label { font-size: 13px; font-weight: 500; }
+.q-req { font-family: var(--f-data); font-size: 9px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--ember); background: var(--ember-w); padding: 2px 7px; border-radius: 6px; margin-left: 8px; }
+.q-options { display: flex; flex-direction: column; gap: 7px; }
+.q-opt { display: flex; align-items: center; gap: 10px; padding: 8px 11px; border-radius: var(--r-sm);
+    cursor: pointer; border: 1px solid transparent; transition: .13s var(--ease); }
+.q-opt:hover { background: var(--hover); }
+.q-opt.on { border-color: var(--brand); background: var(--brand-w); }
+.q-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.q-radio { width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--stroke-2);
+    flex: none; position: relative; transition: .13s var(--ease); }
+.q-opt.on .q-radio { border-color: var(--brand); }
+.q-opt.on .q-radio::after { content: ""; position: absolute; inset: 3px; border-radius: 50%;
+    background: var(--brand); }
+.q-opt input:focus-visible + .q-radio { outline: 2px solid var(--brand); outline-offset: 2px; }
+.q-text { width: 100%; background: var(--panel); border: 1px solid var(--stroke-2); border-radius: var(--r-sm);
+    color: var(--t1); font: inherit; font-size: 13px; padding: 10px 12px; resize: vertical; }
+.q-text:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
+.q-warn { font-size: 11.5px; color: var(--dawn); margin-top: 6px; }
+.q-skip { align-self: flex-start; margin-top: 9px; font-size: 12px; color: var(--t3); cursor: pointer; }
+.q-skip:hover { color: var(--t1); }
+.q-foot { margin-top: 7px; }
+
+/* ── Q4 results ── */
+.sv-owner { background: var(--brand-w); border-radius: var(--r-md); padding: 12px 14px; }
+.sv-owner.missing { background: var(--dawn-w); }
+.dist { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--r-md);
+    padding: 13px 15px; display: flex; flex-direction: column; gap: 9px; }
+.dist-q { font-size: 13px; font-weight: 500; }
+.dist-bars { display: flex; flex-direction: column; gap: 6px; }
+.dist-bar-row { display: grid; grid-template-columns: 90px 1fr 26px; align-items: center; gap: 9px; }
+.dist-label { font-size: 11.5px; color: var(--t2); text-align: right; }
+.dist-track { height: 8px; background: var(--raise); border-radius: 5px; overflow: hidden; }
+.dist-fill { display: block; height: 100%; background: var(--iris); border-radius: 5px;
+    transition: width .4s var(--ease); }
+.dist-count { font-size: 11.5px; text-align: right; }
+.dist-responded { margin-top: 2px; }
+.dist-refused { background: var(--ember-w); border: 1px solid var(--ember); border-radius: var(--r-lg);
+    padding: 16px 18px; }
+.rate { display: flex; align-items: baseline; gap: 7px; font-size: 12px; }
+.rate-n { font-size: 15px; color: var(--t1); }
+.sv-freetext { background: var(--raise); border-left: 2px solid var(--iris); border-radius: var(--r-sm);
+    padding: 9px 12px; font-size: 12.5px; }

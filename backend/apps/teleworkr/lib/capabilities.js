@@ -101,7 +101,17 @@ const CATALOGUE = Object.freeze({
     "people.import": {label: "Import people and opening balances", scopes: [SCOPES.ORG], always_audited: true},
 
     // leave runs (J7) — preview, execute and reverse the scheduled runs
-    "leave_run.operate": {label: "Operate scheduled leave runs", scopes: [SCOPES.ORG], always_audited: true}
+    "leave_run.operate": {label: "Operate scheduled leave runs", scopes: [SCOPES.ORG], always_audited: true},
+
+    // training (P) — assignment is the exception that carries a visible reason;
+    // tracking is completion status only, never scores
+    "training.assign": {label: "Assign training to a person", scopes: [SCOPES.DIRECT_REPORTS, SCOPES.ORG],
+        always_audited: true, action_requires_reason: true},
+    "training.publish": {label: "Publish and withdraw courses", scopes: [SCOPES.ORG], always_audited: true},
+    "training.track": {label: "Track training completion", scopes: [SCOPES.DIRECT_REPORTS, SCOPES.ORG]},
+
+    // surveys (Q) — publishing is the event that fixes the anonymity mode
+    "survey.publish": {label: "Publish surveys and their results", scopes: [SCOPES.ORG], always_audited: true}
 });
 
 /**
@@ -120,6 +130,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["leave.request", SCOPES.SELF], ["leave.approve", SCOPES.DIRECT_REPORTS],
         ["person_data.export", SCOPES.DIRECT_REPORTS], ["wellbeing.read_aggregate", SCOPES.DIRECT_REPORTS],
         ["audit.read_own", SCOPES.SELF], ["wellbeing.read_own", SCOPES.SELF],
+        ["training.assign", SCOPES.DIRECT_REPORTS], ["training.track", SCOPES.DIRECT_REPORTS],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     hr: {label: "HR", capabilities: [
         ["time.read_own", SCOPES.SELF], ["timesheet.read", SCOPES.ORG], ["timesheet.approve", SCOPES.DIRECT_REPORTS],
@@ -128,6 +139,8 @@ const BUILTIN_ROLES = Object.freeze({
         ["person_data.export", SCOPES.ORG],
         ["wellbeing.read_aggregate", SCOPES.ORG], ["audit.read_own", SCOPES.SELF], ["audit.read_policy", SCOPES.ORG],
         ["wellbeing.read_own", SCOPES.SELF],
+        ["training.publish", SCOPES.ORG], ["training.assign", SCOPES.ORG], ["training.track", SCOPES.ORG],
+        ["survey.publish", SCOPES.ORG],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     admin: {label: "Org admin", capabilities: [
         ["time.read_own", SCOPES.SELF], ["leave.request", SCOPES.SELF], ["role.assign", SCOPES.ORG],
@@ -135,7 +148,8 @@ const BUILTIN_ROLES = Object.freeze({
         ["audit.read_own", SCOPES.SELF], ["person_data.export", SCOPES.ORG], ["user.impersonate", SCOPES.ORG],
         ["wiki.publish_public", SCOPES.ORG], ["wellbeing.read_own", SCOPES.SELF],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG], ["task.delete", SCOPES.ORG],
-        ["people.import", SCOPES.ORG], ["leave.approve", SCOPES.ORG], ["leave_run.operate", SCOPES.ORG]]},
+        ["people.import", SCOPES.ORG], ["leave.approve", SCOPES.ORG], ["leave_run.operate", SCOPES.ORG],
+        ["training.publish", SCOPES.ORG], ["survey.publish", SCOPES.ORG]]},
     guest: {label: "Guest", capabilities: [["audit.read_own", SCOPES.SELF]]}
 });
 
