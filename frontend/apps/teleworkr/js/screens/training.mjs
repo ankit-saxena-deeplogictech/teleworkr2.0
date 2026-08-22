@@ -18,9 +18,9 @@
 import {apimanager as apiman} from "/framework/js/apimanager.mjs";
 import {session} from "/framework/js/session.mjs";
 import {states} from "../states.mjs";
-import {courseCard} from "../components/course-card.mjs";
-import {certificateRow} from "../components/certificate-row.mjs";
-import {questionCard} from "../components/question-card.mjs";
+import {courseCard} from "../../components/course-card/course-card.mjs";
+import {certificateRow} from "../../components/certificate-row/certificate-row.mjs";
+import {questionCard} from "../../components/question-card/question-card.mjs";
 
 const API_TRAINING = "training", API_VERIFY = "certverify";
 const _me = _ => ({id: session.get(APP_CONSTANTS.USERID)?.toString(),

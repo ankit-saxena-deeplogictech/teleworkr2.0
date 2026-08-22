@@ -14,7 +14,7 @@
  * License: See the enclosed LICENSE file.
  */
 
-import {states} from "../states.mjs";
+import {states} from "../../js/states.mjs";
 
 const _esc = states.esc;
 const _hm = total => `${Math.floor(total/3600)}h ${String(Math.floor((total%3600)/60)).padStart(2,"0")}m`;

@@ -10,7 +10,7 @@
  * License: See the enclosed LICENSE file.
  */
 
-import {states} from "../states.mjs";
+import {states} from "../../js/states.mjs";
 
 const _esc = states.esc;
 const _ymd = seconds => seconds ? new Date(seconds*1000).toLocaleDateString(undefined,

@@ -23,7 +23,7 @@
  * License: See the enclosed LICENSE file.
  */
 
-import {states} from "../states.mjs";
+import {states} from "../../js/states.mjs";
 
 const _esc = states.esc;
 

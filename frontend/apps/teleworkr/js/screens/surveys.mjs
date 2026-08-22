@@ -19,8 +19,8 @@
 import {apimanager as apiman} from "/framework/js/apimanager.mjs";
 import {session} from "/framework/js/session.mjs";
 import {states} from "../states.mjs";
-import {questionCard} from "../components/question-card.mjs";
-import {distribution} from "../components/distribution.mjs";
+import {questionCard} from "../../components/question-card/question-card.mjs";
+import {distribution} from "../../components/distribution/distribution.mjs";
 
 const API = "surveys";
 const TOKEN_REGISTRY = "__tw_survey_tokens";
