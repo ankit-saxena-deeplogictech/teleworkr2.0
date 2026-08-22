@@ -49,6 +49,11 @@ const _dispatch = async jsonReq => {
             const week = await time.timesheetForOwnerAsync(jsonReq.org, actor.person_id, jsonReq.week_start);
             return {...CONSTANTS.TRUE_RESULT, ...week};
         }
+        case "edit": {
+            const edited = await time.editOwnAsync({org_id: jsonReq.org, person_id: actor.person_id,
+                entry_event_id: jsonReq.entry_event_id, reason: jsonReq.reason, changes: jsonReq.changes});
+            return {...CONSTANTS.TRUE_RESULT, entry: edited};
+        }
         case "submit": {
             const submitted = await time.submitTimesheetAsync(
                 {org_id: jsonReq.org, person_id: actor.person_id, week_start: jsonReq.week_start});
@@ -81,5 +86,5 @@ const _actorAsync = async jsonReq => {
     return person;
 }
 
-const validateRequest = jsonReq => jsonReq && ["record", "day", "week", "submit", "read_other", "return", "approve"]
+const validateRequest = jsonReq => jsonReq && ["record", "day", "week", "edit", "submit", "read_other", "return", "approve"]
     .includes(jsonReq.op) && jsonReq.id && jsonReq.org;

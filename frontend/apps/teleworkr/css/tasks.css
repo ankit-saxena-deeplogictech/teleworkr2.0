@@ -1,0 +1,79 @@
+/*
+ * D1/D2 — the Tasks screen layout: list, filters, creation and the detail
+ * drawer. Shared primitives (bands, chips, inputs) live in training.css.
+ *
+ * (C) 2026 TekMonks. All rights reserved.
+ * License: See the enclosed LICENSE file.
+ */
+
+.page.tk { display: flex; flex-direction: column; gap: 12px; }
+
+/* ── head: search, status chips, create ── */
+.tk-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tk-q { min-width: 200px; }
+.tk-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.tk-chip { padding: 5px 10px; font-size: 12px; border-radius: 99px; color: var(--t2);
+    border: 1px solid var(--stroke); cursor: pointer; }
+.tk-chip:hover { color: var(--t1); }
+.tk-chip.on { color: var(--t1); border-color: var(--brand); background: var(--brand-w); }
+.tk-create { display: flex; gap: 8px; flex-wrap: wrap; background: var(--panel);
+    border: 1px solid var(--stroke); border-radius: var(--r-md); padding: 12px; }
+
+/* ── list + drawer grid ── */
+.tk-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(320px, 420px);
+    gap: 14px; align-items: start; }
+@media (max-width: 980px) { .tk-grid { grid-template-columns: 1fr; } }
+.tk-col { display: flex; flex-direction: column; gap: 8px; }
+
+.tk-row { display: flex; align-items: center; gap: 12px; background: var(--panel);
+    border: 1px solid var(--stroke); border-radius: var(--r-lg); padding: 12px 14px;
+    cursor: pointer; transition: border-color .14s var(--ease); }
+.tk-row:hover { border-color: var(--stroke-2); }
+.tk-row-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tk-ref { font-size: 10.5px; color: var(--t3); }
+.tk-title { font-size: 13.5px; font-weight: 600; margin-top: 2px; }
+.tk-meta { margin-top: 2px; }
+.tk-due { font-size: 11px; color: var(--t2); }
+.tk-due.late { color: var(--ember); }
+.tk-blocked { margin-top: 5px; font-size: 11.5px; color: var(--ember);
+    background: var(--ember-w); border-radius: 6px; padding: 4px 8px; }
+
+/* the status dot and chips */
+.tk-status { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.s-to_do { background: var(--stroke-2); }
+.s-in_progress { background: var(--dawn); }
+.s-in_review { background: var(--iris); }
+.s-blocked { background: var(--ember); }
+.s-done { background: var(--mint); }
+.tk-status-chip { font-family: var(--f-data); font-size: 9px; letter-spacing: .06em;
+    text-transform: uppercase; padding: 2px 7px; border-radius: 5px; }
+.tk-status-chip.s-to_do { color: var(--t2); background: var(--raise); }
+.tk-status-chip.s-in_progress { color: var(--dawn); background: var(--dawn-w); }
+.tk-status-chip.s-in_review { color: var(--iris); background: var(--iris-w); }
+.tk-status-chip.s-blocked { color: var(--ember); background: var(--ember-w); }
+.tk-status-chip.s-done { color: var(--mint); background: var(--mint-w); }
+
+/* ── the drawer ── */
+.tk-drawer { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--r-lg);
+    padding: 16px; display: flex; flex-direction: column; gap: 12px;
+    position: sticky; top: 12px; max-height: calc(100vh - 150px); overflow: auto; }
+.tk-drawer-head { display: flex; align-items: flex-start; gap: 10px; }
+.tk-drawer-head h2 { font-size: 16px; margin-top: 2px; }
+.tk-drawer-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.tk-block-panel { background: var(--ember-w); border-radius: var(--r-md); padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 6px; }
+.tk-drawer-section { display: flex; flex-direction: column; gap: 6px;
+    border-top: 1px solid var(--stroke); padding-top: 10px; }
+.tk-comment { background: var(--raise); border-radius: var(--r-sm); padding: 8px 10px; }
+.tk-event { color: var(--t2); }
+.tk-event:first-letter { text-transform: uppercase; }
+
+/* ── the picker overlay (shared with the Day board) ── */
+.picker { width: 440px; max-width: calc(100vw - 40px); }
+.picker-q { width: 100%; margin: 10px 0; }
+.picker-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow: auto; }
+.picker-row { display: flex; gap: 10px; align-items: center; width: 100%; padding: 9px 11px;
+    border-radius: 8px; text-align: left; }
+.picker-row:hover { background: var(--raise); }
+.picker-row .mono { font-size: 11px; color: var(--t3); }
+.picker-empty { color: var(--t3); font-size: 12.5px; padding: 12px 4px; }

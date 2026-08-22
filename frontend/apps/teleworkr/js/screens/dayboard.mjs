@@ -19,6 +19,7 @@
 import {apimanager as apiman} from "/framework/js/apimanager.mjs";
 import {session} from "/framework/js/session.mjs";
 import {states} from "../states.mjs";
+import {taskPicker} from "../../components/task-picker/task-picker.mjs";
 
 const API_DAYBOARD = "dayboard", API_CLOCK = "clock", API_TASKS = "tasks";
 
@@ -164,11 +165,12 @@ function _weekFooter(board) {
 function _wire(root, board) {
     root.querySelector('[data-db="pause"]')?.addEventListener("click", _ => _pause(root));
     root.querySelector('[data-db="resume"]')?.addEventListener("click", _ => _resume(root, board));
-    root.querySelector('[data-db="switch"]')?.addEventListener("click", _ =>
-        states.toast({message: "Choosing a task to switch to needs a task picker — not built yet."}));
+    root.querySelector('[data-db="switch"]')?.addEventListener("click", _ => _switchTask(root));
     root.querySelector('[data-db="complete"]')?.addEventListener("click", _ => _markComplete(root, board));
-    root.querySelector('[data-db="timesheet"]')?.addEventListener("click", _ =>
-        states.toast({message: "The timesheet (C5) is not built yet."}));
+    root.querySelector('[data-db="timesheet"]')?.addEventListener("click", async _ => {
+        const {shell} = await import("../shell.mjs");
+        shell.setSurface("timesheet");
+    });
 }
 
 async function _pause(root) {
@@ -195,6 +197,27 @@ async function _markComplete(root, board) {
         {op: "update", task_ref: taskRef, changes: {status: "done"}, ..._me()}, true);
     if (!response?.result) {states.toast({message: response?.reason || "Could not update the task."}); return;}
     states.toast({message: `${taskRef} marked complete.`});
+    render(root);
+}
+
+/** C1: the clock is bound to a task through the shared picker — one overlay,
+ *  used by the Day board and the Tasks screen alike. */
+async function _switchTask(root) {
+    let response;
+    try {
+        response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/${API_TASKS}`, "GET",
+            {op: "list", filters: {}, page_size: 200, ..._me()}, true);
+    } catch (err) {response = null;}
+    if (!response?.result) {states.toast({message: response?.reason || "Could not load tasks."}); return;}
+    const open = (response.rows || []).filter(task => task.status != "done" && task.status != "blocked");
+    if (!open.length) {states.toast({message: "No open tasks to switch to. Create one in Tasks."}); return;}
+
+    const taskRef = await taskPicker.pick({title: "Switch the clock to", tasks: open});
+    if (!taskRef) return;
+    const switched = await apiman.rest(`${APP_CONSTANTS.API_PATH}/${API_CLOCK}`, "GET",
+        {op: "switch", task_ref: taskRef, ..._me()}, true);
+    if (!switched?.result) {states.toast({message: switched?.reason || "Could not switch the clock."}); return;}
+    states.toast({message: `Clock moved to ${taskRef}.`});
     render(root);
 }
 

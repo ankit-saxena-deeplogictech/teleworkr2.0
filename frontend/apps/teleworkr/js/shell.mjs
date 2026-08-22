@@ -19,6 +19,8 @@ import {states} from "./states.mjs";
 import {render as renderDayBoard} from "./screens/dayboard.mjs";
 import {render as renderTraining} from "./screens/training.mjs";
 import {render as renderSurveys} from "./screens/surveys.mjs";
+import {render as renderTasks} from "./screens/tasks.mjs";
+import {render as renderTimesheet} from "./screens/timesheet.mjs";
 
 const API_SHELL = "shell", API_CLOCK = "clock";
 
@@ -29,7 +31,7 @@ const API_SHELL = "shell", API_CLOCK = "clock";
  * one line here, not a branch in setSurface.
  */
 const SCREENS = {day: renderDayBoard, training: renderTraining, trainingtrack: renderTraining,
-    surveys: renderSurveys};
+    surveys: renderSurveys, tasks: renderTasks, timesheet: renderTimesheet};
 const CLOCK_POLL_MS = 30000;        // the server is the record; the local tick is only the seconds between polls
 const THEME_KEY = "__teleworkr_theme";
 

@@ -117,17 +117,21 @@ exports.listTasksAsync = async function(request) {
     const filters = request.filters || {};
     const page = request.page || 1, pageSize = request.page_size || 50;
 
-    let where = "org_id=?", params = [request.org_id];
-    if (filters.status) {where += " AND status=?"; params.push(filters.status);}
-    if (filters.project) {where += " AND project=?"; params.push(filters.project);}
-    if (filters.assignee_person_id) {where += " AND assignee_person_id=?"; params.push(filters.assignee_person_id);}
-    if (filters.overdue) {where += " AND due_date < ? AND status NOT IN ('done','blocked')"; params.push(_today());}
-    if (filters.due_date) {where += " AND due_date=?"; params.push(filters.due_date);}
-    if (filters.q) {where += " AND title LIKE ?"; params.push(`%${filters.q}%`);}
+    let where = "task.org_id=? AND task.archived_at IS NULL", params = [request.org_id];
+    if (filters.status) {where += " AND task.status=?"; params.push(filters.status);}
+    if (filters.project) {where += " AND task.project=?"; params.push(filters.project);}
+    if (filters.assignee_person_id) {where += " AND task.assignee_person_id=?"; params.push(filters.assignee_person_id);}
+    if (filters.overdue) {where += " AND task.due_date < ? AND task.status NOT IN ('done','blocked')"; params.push(_today());}
+    if (filters.due_date) {where += " AND task.due_date=?"; params.push(filters.due_date);}
+    if (filters.q) {where += " AND task.title LIKE ?"; params.push(`%${filters.q}%`);}
 
     const total = (await dblayer.getQueryOrThrow(`SELECT COUNT(*) AS c FROM task WHERE ${where}`, params))[0].c;
     const rows = await dblayer.getQueryOrThrow(
-        `SELECT * FROM task WHERE ${where} ORDER BY created_at DESC, task_ref DESC LIMIT ? OFFSET ?`,
+        `SELECT task.*, p.display_name AS assignee_name, cp.display_name AS created_by_name
+            FROM task
+            LEFT JOIN person p ON p.person_id = task.assignee_person_id
+            LEFT JOIN person cp ON cp.person_id = task.created_by
+            WHERE ${where} ORDER BY task.created_at DESC, task.task_ref DESC LIMIT ? OFFSET ?`,
         [...params, pageSize, (page-1)*pageSize]);
 
     return {rows: await _withBlockedOnAsync(request.org_id, rows),
@@ -189,7 +193,16 @@ exports.taskDetailAsync = async function(request) {
         "SELECT * FROM task_event WHERE task_id=? ORDER BY created_at ASC", [task.task_id]);
 
     const timeLog = await time.eventsForTaskAsync(request.org_id, task.task_ref);
-    return {task, blockers: await Promise.all(blockers.map(enrich)), blocks: await Promise.all(blocks.map(enrich)),
+
+    // names for the drawer, so a screen never renders a raw person id as a label
+    const names = await dblayer.getQueryOrThrow(
+        "SELECT person_id, display_name FROM person WHERE person_id=? OR person_id=?",
+        [task.assignee_person_id || "", task.created_by || ""]);
+    const nameOf = id => names.find(row => row.person_id == id)?.display_name || null;
+
+    return {task: {...task, assignee_name: nameOf(task.assignee_person_id),
+            created_by_name: nameOf(task.created_by)},
+        blockers: await Promise.all(blockers.map(enrich)), blocks: await Promise.all(blocks.map(enrich)),
         subtasks, watchers, comments, events, time_log: timeLog,
         logged_seconds: _currentLoggedSeconds(timeLog, _now())};
 }

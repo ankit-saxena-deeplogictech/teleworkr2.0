@@ -1,0 +1,52 @@
+/*
+ * C5 — the Timesheet screen layout: the week by day, the totals strip, and
+ * the submit that pins the snapshot.
+ *
+ * (C) 2026 TekMonks. All rights reserved.
+ * License: See the enclosed LICENSE file.
+ */
+
+.page.ts { display: flex; flex-direction: column; gap: 12px; }
+
+.ts-head { display: flex; align-items: center; gap: 10px; }
+.ts-week { display: flex; flex-direction: column; }
+.ts-status { font-family: var(--f-data); font-size: 10px; letter-spacing: .08em;
+    text-transform: uppercase; padding: 4px 9px; border-radius: 6px; }
+.ts-status.s-open { color: var(--t2); background: var(--raise); }
+.ts-status.s-submitted { color: var(--iris); background: var(--iris-w); }
+.ts-status.s-returned { color: var(--dawn); background: var(--dawn-w); }
+.ts-status.s-approved, .ts-status.s-locked { color: var(--mint); background: var(--mint-w); }
+
+.ts-totals { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--r-md);
+    padding: 11px 14px; font-size: 12.5px; color: var(--t2); }
+.ts-totals .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--stroke-2); }
+.ts-totals .mono { color: var(--t1); }
+.ts-recon { color: var(--dawn); }
+
+.ts-returned { background: var(--dawn-w); border: 1px solid var(--dawn); border-radius: var(--r-md);
+    padding: 11px 14px; font-size: 12.5px; display: flex; flex-direction: column; gap: 3px; }
+.ts-submitted { background: var(--iris-w); border: 1px solid var(--stroke); border-radius: var(--r-md);
+    padding: 11px 14px; font-size: 12.5px; }
+.ts-approved { background: var(--mint-w); border: 1px solid var(--stroke); border-radius: var(--r-md);
+    padding: 11px 14px; font-size: 12.5px; }
+
+/* ── the days ── */
+.ts-day { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--r-md);
+    padding: 10px 14px; display: flex; flex-direction: column; gap: 7px; }
+.ts-day-head { display: flex; align-items: center; gap: 8px; }
+.ts-noentries { padding: 2px 0; }
+.ts-entry { display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--stroke);
+    padding-top: 7px; }
+.ts-entry:first-of-type { border-top: none; padding-top: 0; }
+.ts-entry-time { font-size: 11px; color: var(--t3); width: 96px; flex: none; }
+.ts-chip { font-family: var(--f-data); font-size: 9px; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--iris); background: var(--iris-w); padding: 2px 6px; border-radius: 5px; flex: none; }
+.ts-chip.recon { color: var(--dawn); background: var(--dawn-w); }
+.ts-chip.live { color: var(--mint); background: var(--mint-w); }
+
+.ts-edit { display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+    border-top: 1px solid var(--stroke); padding-top: 7px; }
+
+.ts-card { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--r-md);
+    padding: 13px 15px; display: flex; flex-direction: column; gap: 6px; }
