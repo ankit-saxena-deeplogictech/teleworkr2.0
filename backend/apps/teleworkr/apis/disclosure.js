@@ -6,6 +6,7 @@
  *
  * Operations:
  *  op - access_log - Who accessed the caller's record in the window, grouped
+ *  op - viewers    - The concrete people the mirror can be viewed as: self, manager, HR, admin
  *  op - mirror     - What the viewer (defaults to the caller) sees about the caller
  *  op - retention  - The retention table in concrete numbers
  *  op - export     - The caller's full record as a JSON bundle
@@ -25,6 +26,10 @@ exports.doService = async jsonReq => {
                 const log = await disclosure.accessLogAsync(
                     {org_id: jsonReq.org, person_id: actor.person_id, days: jsonReq.days});
                 return {...CONSTANTS.TRUE_RESULT, ...log};
+            }
+            case "viewers": {
+                const result = await disclosure.viewersAsync({org_id: jsonReq.org, person_id: actor.person_id});
+                return {...CONSTANTS.TRUE_RESULT, ...result};
             }
             case "mirror": {
                 const viewer = jsonReq.viewer_person_id || actor.person_id;
@@ -54,5 +59,5 @@ const _actorAsync = async jsonReq => {
     return person;
 }
 
-const validateRequest = jsonReq => jsonReq && ["access_log", "mirror", "retention", "export"].includes(jsonReq.op) &&
+const validateRequest = jsonReq => jsonReq && ["access_log", "viewers", "mirror", "retention", "export"].includes(jsonReq.op) &&
     jsonReq.id && jsonReq.org;

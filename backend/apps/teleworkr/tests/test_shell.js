@@ -49,6 +49,7 @@ exports.runTestsAsync = async function(argv) {
         await _testProjection(w);
         await _testHidingIsNotAuthorization(w);
         await _testNoEmployment(w);
+        await _testOrgMissing(w);
         await _testAPI(w);
     } catch (err) {
         failed++; LOG.console(`  FAIL  shell tests threw: ${err}\n`); LOG.error(`Shell tests threw: ${err.stack}`);
@@ -205,6 +206,29 @@ async function _testNoEmployment(w) {
 
     await _checkThrows("a projection for an unknown person is refused", _ =>
         shell.projectAsync({org_id: w.org_id, person_id: "not-a-person", asOf: TODAY}));
+}
+
+async function _testOrgMissing(w) {
+    LOG.console("\n first-run: the org the IdP named does not exist\n");
+    const projection = await shell.projectAsync({org_id: "org-that-was-never-created",
+        person_id: "anyone", asOf: TODAY});
+    _check("a missing org answers with the org_missing flag, not an error",
+        projection.org_missing === true && projection.person === null &&
+        projection.tabs.length == 0 && projection.home === null,
+        JSON.stringify(projection).substring(0, 200));
+    _check("its banner names the missing org and the way forward",
+        projection.banners.length == 1 && projection.banners[0].source == "org_missing" &&
+        Boolean(projection.banners[0].what_to_do));
+
+    // The path an actual first-ever sign-in takes: nobody has resolved a
+    // person_id yet, because nobody by this email has ever been provisioned
+    // anywhere. This is the case _actorAsync used to short-circuit on before
+    // the org check ever ran — asserted here through the API, not the lib
+    // function directly, so a regression there is caught.
+    const bootstrap = await shellapi.doService({op: "bootstrap",
+        id: `nobody-yet-${w.stamp}@example.invalid`, org: "org-that-was-never-created"});
+    _check("a brand-new person and a brand-new org still answers org_missing, not a refusal",
+        bootstrap.result === true && bootstrap.org_missing === true, JSON.stringify(bootstrap));
 }
 
 async function _testAPI(w) {

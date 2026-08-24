@@ -141,6 +141,41 @@ const NEVER_COLLECTED = Object.freeze({
 });
 
 /**
+ * The concrete perspectives H5's switcher offers — "as your manager sees it",
+ * "as HR sees it", "as admin sees it" — each resolved to a real person rather
+ * than a role name, because a role with nobody in it should not offer a button.
+ * HR and admin are identified by a capability only that role's bundle grants
+ * (BUILTIN_ROLES): the same engine that decides the mirror decides who stands
+ * in for the role, so the switcher cannot name someone the mirror disagrees with.
+ *
+ * @param {object} request {org_id, person_id}
+ * @returns {object} {viewers: [{person_id, display_name, role}]}, "self" always first
+ */
+exports.viewersAsync = async function(request) {
+    const {org_id, person_id} = request;
+    const seen = new Set([person_id]);
+    const viewers = [{person_id, display_name: "Yourself", role: "self"}];
+
+    const addIfNewAsync = async (candidate, role) => {
+        if (!candidate || seen.has(candidate)) return;
+        const person = await spine.getPersonAsync(candidate);
+        if (!person) return;
+        seen.add(candidate);
+        viewers.push({person_id: candidate, display_name: person.display_name || person.email, role});
+    };
+
+    await addIfNewAsync(await spine.managerAsOfAsync(org_id, person_id), "manager");
+
+    const hr = await permissions.whoCanAsync(org_id, "leave_policy.publish");
+    if (hr.length) await addIfNewAsync(hr[0].person_id, "hr");
+
+    const admin = await permissions.whoCanAsync(org_id, "audit.read_all");
+    if (admin.length) await addIfNewAsync(admin[0].person_id, "admin");
+
+    return {viewers};
+}
+
+/**
  * Retention in concrete numbers, straight from the entity register — the same
  * source the erasure jobs will run from, so the screen cannot disagree with the
  * product (A6: retention clocks anchor to events, never to calendar dates).

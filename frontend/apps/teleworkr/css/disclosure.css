@@ -1,0 +1,35 @@
+/*
+ * H5 — what your manager sees. The perspective switcher, the sees/does-not-see
+ * mirror, and the your-data/retention panels.
+ * (C) 2026 TekMonks. All rights reserved.
+ * License: See the enclosed LICENSE file.
+ */
+
+.page.ds { display: flex; flex-direction: column; gap: 14px; }
+.ds-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+
+.ds-switcher { display: flex; gap: 6px; flex-wrap: wrap; }
+.ds-persp { height: 30px; padding: 0 12px; border-radius: 8px; font-size: 12px; font-weight: 500;
+    background: var(--panel); border: 1px solid var(--stroke-2); color: var(--t2); }
+.ds-persp:hover { background: var(--raise); }
+.ds-persp.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+
+.ds-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; align-items: start; }
+@media (max-width: 900px) { .ds-grid { grid-template-columns: 1fr; } }
+
+.ds-card { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--r-lg);
+    padding: 13px 16px; display: flex; flex-direction: column; gap: 8px; }
+
+.ds-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--stroke); }
+.ds-row:last-child { border-bottom: none; }
+
+.ds-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ds-chip { font-size: 11px; color: var(--t2); background: var(--raise); border-radius: 6px; padding: 4px 9px;
+    cursor: help; }
+
+.ds-retention { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; }
+.ds-ret-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px dashed var(--stroke);
+    font-size: 12px; }
+.ds-ret-row:last-child { border-bottom: none; }
+
+.ds-note { font-size: 11.5px; color: var(--t3); text-align: center; padding: 4px 0 10px; }

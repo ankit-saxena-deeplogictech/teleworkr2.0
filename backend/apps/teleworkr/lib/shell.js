@@ -131,9 +131,25 @@ exports.validateCatalogueSync = function() {
  */
 exports.projectAsync = async function(request) {
     const {org_id, person_id} = request;
-    if (!org_id || !person_id) throw new Error("A shell projection needs an org_id and a person_id.");
+    if (!org_id) throw new Error("A shell projection needs an org_id.");
     const asOf = request.asOf || new Date().toISOString().substring(0, 10);
 
+    // First-run: the IdP verified a person and named an org that does not exist
+    // here yet. The shell must answer this with the org-creation form, not with
+    // "no person" — an org that was never created is a different situation from
+    // a person an org chose not to admit. Checked before person_id is required at
+    // all: a brand-new org has no provisioned person either, so demanding one
+    // here would throw "no person" for exactly the case this branch exists to
+    // catch.
+    if (!await spine.getOrgAsync(org_id)) return {
+        org_missing: true, org_id, person: null, employment: null, capabilities: [],
+        tabs: [], consoles: [], home: null,
+        coverage: {visible: 0, total: Object.keys(SURFACES).length},
+        banners: [{level: "blocked", source: "org_missing",
+            message: `No organisation ${org_id} exists here yet. Your identity is verified; the organisation is the missing half.`,
+            what_to_do: "Create the organisation — the person who creates it becomes its first admin."}]};
+
+    if (!person_id) throw new Error(`No person for this caller in ${org_id}. Sign in with a provisioned account.`);
     const person = await spine.getPersonAsync(person_id);
     if (!person) throw new Error(`No person ${person_id}.`);
 

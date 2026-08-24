@@ -43,6 +43,7 @@ exports.runTestsAsync = async function(argv) {
         w = await _buildWorld();
         await _seed(w);
         await _testAccessLog(w);
+        await _testViewers(w);
         await _testMirror(w);
         await _testRetention(w);
         await _testExport(w);
@@ -96,6 +97,26 @@ async function _testAccessLog(w) {
     _check("the log names the people", byBob?.display_name == "bob" && byCarol?.display_name == "carol");
     _check("the person's own actions are counted separately", log.self_count == 1, `${log.self_count}`);
     _check("actions older than the window fall out", !log.accesses.some(entry => entry.action == "timesheet.approved" && entry.count == 3));
+}
+
+async function _testViewers(w) {
+    LOG.console("\n the switcher's perspectives are resolved, not hand-wired\n");
+    const {viewers} = await disclosure.viewersAsync({org_id: w.org_id, person_id: w.alice});
+    _check("self is always first", viewers[0].person_id == w.alice && viewers[0].role == "self");
+    _check("the manager on record is offered",
+        viewers.some(v => v.person_id == w.bob && v.role == "manager" && v.display_name == "bob"),
+        JSON.stringify(viewers));
+    _check("whoever holds leave_policy.publish stands in for HR",
+        viewers.some(v => v.person_id == w.carol && v.role == "hr"));
+    _check("whoever holds audit.read_all stands in for admin",
+        viewers.some(v => v.person_id == w.dave && v.role == "admin"));
+    _check("a role already matched by the manager is not offered twice",
+        viewers.filter(v => v.person_id == w.bob).length == 1);
+
+    const {viewers: forErin} = await disclosure.viewersAsync({org_id: w.org_id, person_id: w.erin});
+    _check("someone with no manager and no HR/admin coincidence just sees themselves plus real roles",
+        forErin[0].role == "self" && forErin.some(v => v.role == "hr") && forErin.some(v => v.role == "admin") &&
+        !forErin.some(v => v.role == "manager"));
 }
 
 async function _testMirror(w) {
@@ -167,6 +188,10 @@ async function _testAPI(w) {
     const log = await disclosureapi.doService({op: "access_log", id: w.aliceEmail, org: w.org_id});
     _check("op access_log answers true with the grouped accesses",
         log.result === true && Array.isArray(log.accesses));
+
+    const viewers = await disclosureapi.doService({op: "viewers", id: w.aliceEmail, org: w.org_id});
+    _check("op viewers answers with the resolved switcher options",
+        viewers.result === true && viewers.viewers.some(v => v.role == "manager" && v.person_id == w.bob));
 
     const mirror = await disclosureapi.doService({op: "mirror", id: w.aliceEmail, org: w.org_id,
         viewer_person_id: w.bob});

@@ -24,9 +24,16 @@ exports.doService = async jsonReq => {
     try {
         switch (jsonReq.op) {
             case "bootstrap": {
-                const actor = await _actorAsync(jsonReq);
+                // Identity is resolved by email, but an org that does not exist yet
+                // cannot have a provisioned person in it — asking "who is this"
+                // before asking "does this org exist" would throw "no person" for
+                // the exact first-run case the org_missing projection exists to
+                // answer. So the lookup is passed through, not resolved here: only
+                // projectAsync knows whether a missing person means "no org" or
+                // "not provisioned", because only it has checked the org first.
+                const person = await spine.getPersonByEmailAsync((jsonReq.id||"").toLowerCase());
                 const projection = await shell.projectAsync(
-                    {org_id: jsonReq.org, person_id: actor.person_id, asOf: jsonReq.asOf});
+                    {org_id: jsonReq.org, person_id: person?.person_id || null, asOf: jsonReq.asOf});
                 return {...CONSTANTS.TRUE_RESULT, ...projection};
             }
             case "surfaces": {
@@ -42,12 +49,6 @@ exports.doService = async jsonReq => {
         LOG.error(`Shell operation ${jsonReq.op} failed: ${err}`);
         return {...CONSTANTS.FALSE_RESULT, reason: err.message};
     }
-}
-
-const _actorAsync = async jsonReq => {
-    const person = await spine.getPersonByEmailAsync((jsonReq.id||"").toLowerCase());
-    if (!person) throw new Error(`No person for ${jsonReq.id}. Sign in with a provisioned account.`);
-    return person;
 }
 
 const validateRequest = jsonReq => jsonReq && jsonReq.op && jsonReq.id && jsonReq.org;

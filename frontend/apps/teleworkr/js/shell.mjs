@@ -24,6 +24,8 @@ import {render as renderTimesheet} from "./screens/timesheet.mjs";
 import {render as renderTeam} from "./screens/team.mjs";
 import {render as renderCalendar} from "./screens/calendar.mjs";
 import {render as renderLeave} from "./screens/leave.mjs";
+import {render as renderPeople} from "./screens/people.mjs";
+import {render as renderDisclosure} from "./screens/disclosure.mjs";
 
 const API_SHELL = "shell", API_CLOCK = "clock";
 
@@ -35,7 +37,8 @@ const API_SHELL = "shell", API_CLOCK = "clock";
  */
 const SCREENS = {day: renderDayBoard, training: renderTraining, trainingtrack: renderTraining,
     surveys: renderSurveys, tasks: renderTasks, timesheet: renderTimesheet,
-    team: renderTeam, calendar: renderCalendar, leave: renderLeave};
+    team: renderTeam, calendar: renderCalendar, leave: renderLeave, people: renderPeople,
+    me: renderDisclosure};
 const CLOCK_POLL_MS = 30000;        // the server is the record; the local tick is only the seconds between polls
 const THEME_KEY = "__teleworkr_theme";
 
@@ -101,6 +104,16 @@ async function refreshProjection() {
     }
 
     projection = response;
+    if (projection.org_missing) {
+        // First-run, decided by the server: the org the IdP named does not
+        // exist. Render the creation form regardless of what the login result
+        // carried, so a stale login response can never blank the screen.
+        const loginResponse = session.get(APP_CONSTANTS.LOGIN_RESPONSE);
+        _renderOrgBootstrap({suborg: loginResponse?.suborg || loginResponse?.org || null,
+            org: projection.org_id});
+        document.querySelector("#tabs").innerHTML = "";
+        return false;
+    }
     return true;
 }
 
