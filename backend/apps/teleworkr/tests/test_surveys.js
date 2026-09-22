@@ -61,6 +61,7 @@ exports.runTestsAsync = async function(argv) {
         await _testQuestionnaire(w);
         await _testResults(w);
         await _testOwnerActions(w);
+        await _testManageList(w);
     } catch (err) {
         failed++; LOG.console(`  FAIL  survey tests threw: ${err}\n`); LOG.error(`Survey tests threw: ${err.stack}`);
     } finally {
@@ -294,6 +295,32 @@ async function _testOwnerActions(w) {
             survey.mode == "confidential" &&
             /Results are published/.test(survey.brief.what_happens_next)),
         JSON.stringify(list.closed.map(s => s.survey_code)));
+}
+
+/** Q5: the management list — an owner sees every survey's current state; nobody else can. */
+async function _testManageList(w) {
+    LOG.console("\n the management list\n");
+    await _checkThrows("an employee with no survey.publish grant cannot list surveys to manage",
+        _ => surveys.manageListAsync(w.org_id, w.alice));
+
+    const board = await surveys.manageListAsync(w.org_id, w.carol);
+    _check("mode contracts and the cohort floor ride along, server-authored",
+        board.mode_contracts?.confidential?.label == "Confidential" && board.cohort_floor == 5,
+        JSON.stringify(board.mode_contracts));
+
+    const checkin = board.surveys.find(s => s.survey_code == "checkin");
+    _check("a results-published survey reports its status and response count",
+        checkin?.status == "results_published" && checkin.responded == 5,
+        JSON.stringify(checkin));
+
+    const office = board.surveys.find(s => s.survey_code == "office");
+    _check("a withdrawn survey stays listed, with its status and reason",
+        office?.status == "withdrawn" && office.withdrawn_reason == "The question set was wrong.",
+        JSON.stringify(office));
+
+    const culture = board.surveys.find(s => s.survey_code == "culture");
+    _check("an anonymous survey's invited count stays null even in the management list",
+        culture?.invited === null && culture.responded == 5, JSON.stringify(culture));
 }
 
 async function _buildWorld() {

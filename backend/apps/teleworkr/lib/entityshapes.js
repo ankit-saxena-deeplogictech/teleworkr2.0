@@ -114,10 +114,20 @@ const REGISTER = Object.freeze({
         note: "One edge for task, page and message. Sharing state lives on the file, never on the edge."},
 
     // --- hiring and wellbeing ---
+    workflow_version: {shape: SHAPES.VERSIONED_POINTER, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.NONE,
+        note: "Not personal data. Same reasoning as course_version — you must be able to show what process a candidate was told about."},
+    requisition: {shape: SHAPES.MUTABLE, erasure: ERASURE.RETAIN, keep: null, anchor: ANCHORS.NONE,
+        note: "Headcount and budget data, not personal data. Retained for planning history regardless of candidate erasure."},
+    candidate: {shape: SHAPES.MUTABLE, erasure: ERASURE.ERASE, keep: "6m", anchor: ANCHORS.REQUISITION_CLOSED,
+        note: "No employment relationship, so this is deliberately not person/employment — a different retention regime entirely. K12's consent-extended retention is a later refinement of this baseline."},
     application: {shape: SHAPES.EDGE, erasure: ERASURE.ERASE, keep: "6m", anchor: ANCHORS.REQUISITION_CLOSED,
         note: "candidate × requisition. A person can apply twice; the second application is not a duplicate."},
     stage_transition: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.ERASE, keep: "6m", anchor: ANCHORS.REQUISITION_CLOSED,
         note: "Produced by the workflow engine, never by a drag."},
+    scorecard: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.ERASE, keep: "6m", anchor: ANCHORS.REQUISITION_CLOSED,
+        note: "Locked once submitted, same discipline as a certificate — but unlike a certificate the whole record is the candidate's struggle, not just its pass, so it erases with the rest of the application rather than pseudonymising."},
+    panel_assignment: {shape: SHAPES.EDGE, erasure: ERASURE.ERASE, keep: "6m", anchor: ANCHORS.REQUISITION_CLOSED,
+        note: "application × round × interviewers × time. The interviewers' hours survive erasure in the time ledger, where they are the interviewer's work, not the candidate's data."},
     signal_ledger_entry: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.ERASE, keep: "13m", anchor: ANCHORS.SIGNAL_EVALUATED,
         note: "Reads six tables, writes one. The wellbeing module adds no new collection — that is what makes it defensible."},
 

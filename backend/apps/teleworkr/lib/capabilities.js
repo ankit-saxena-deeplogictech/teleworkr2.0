@@ -111,7 +111,18 @@ const CATALOGUE = Object.freeze({
     "training.track": {label: "Track training completion", scopes: [SCOPES.DIRECT_REPORTS, SCOPES.ORG]},
 
     // surveys (Q) — publishing is the event that fixes the anonymity mode
-    "survey.publish": {label: "Publish surveys and their results", scopes: [SCOPES.ORG], always_audited: true}
+    "survey.publish": {label: "Publish surveys and their results", scopes: [SCOPES.ORG], always_audited: true},
+
+    // recruitment (K) — one engine decides legal transitions; screens render what
+    // it returns. requisition.approve and candidate.read predate this catalogue
+    // section but were never granted to a role until now.
+    "workflow.publish": {label: "Publish a recruitment workflow version", scopes: [SCOPES.ORG], always_audited: true},
+    "requisition.create": {label: "Raise a requisition", scopes: [SCOPES.TEAM, SCOPES.ORG]},
+    "stage_transition.record": {label: "Advance, reject, hold, skip, reschedule or cancel a candidate",
+        scopes: [SCOPES.TEAM, SCOPES.ORG], always_audited: true},
+    "scorecard.submit": {label: "Submit an interview scorecard", scopes: [SCOPES.TEAM, SCOPES.ORG], always_audited: true},
+    "panel.schedule": {label: "Schedule an interview panel and record how it went", scopes: [SCOPES.ORG],
+        always_audited: true}
 });
 
 /**
@@ -141,6 +152,8 @@ const BUILTIN_ROLES = Object.freeze({
         ["wellbeing.read_own", SCOPES.SELF],
         ["training.publish", SCOPES.ORG], ["training.assign", SCOPES.ORG], ["training.track", SCOPES.ORG],
         ["survey.publish", SCOPES.ORG],
+        ["workflow.publish", SCOPES.ORG], ["requisition.approve", SCOPES.ORG], ["requisition.create", SCOPES.ORG],
+        ["stage_transition.record", SCOPES.ORG], ["scorecard.submit", SCOPES.ORG], ["panel.schedule", SCOPES.ORG],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     admin: {label: "Org admin", capabilities: [
         ["time.read_own", SCOPES.SELF], ["leave.request", SCOPES.SELF], ["role.assign", SCOPES.ORG],
@@ -149,7 +162,10 @@ const BUILTIN_ROLES = Object.freeze({
         ["wiki.publish_public", SCOPES.ORG], ["wellbeing.read_own", SCOPES.SELF],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG], ["task.delete", SCOPES.ORG],
         ["people.import", SCOPES.ORG], ["leave.approve", SCOPES.ORG], ["leave_run.operate", SCOPES.ORG],
-        ["training.publish", SCOPES.ORG], ["survey.publish", SCOPES.ORG]]},
+        ["training.publish", SCOPES.ORG], ["survey.publish", SCOPES.ORG],
+        ["workflow.publish", SCOPES.ORG], ["requisition.approve", SCOPES.ORG], ["requisition.create", SCOPES.ORG],
+        ["candidate.read", SCOPES.ORG], ["stage_transition.record", SCOPES.ORG], ["scorecard.submit", SCOPES.ORG],
+        ["panel.schedule", SCOPES.ORG]]},
     guest: {label: "Guest", capabilities: [["audit.read_own", SCOPES.SELF]]}
 });
 

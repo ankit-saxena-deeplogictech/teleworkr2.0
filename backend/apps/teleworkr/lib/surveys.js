@@ -195,6 +195,47 @@ exports.withdrawSurveyAsync = async function(request) {
         }});
 }
 
+/**
+ * The management list (Q5) — every survey the org has published, current
+ * version only, with the counts an owner needs to decide what to do next.
+ * Read-gated the same way `training.js`'s `trackingAsync` gates P6: a caller
+ * with no `survey.publish` grant is refused rather than shown an empty list.
+ *
+ * Returns the mode contract and cohort floor alongside the rows so the
+ * builder's copy stays server-authored — the respondent side never hardcodes
+ * this text either (it reads `mode_contract.label`, `footer`, etc. off the
+ * API response), and the builder should not be the exception.
+ *
+ * @param {string} org_id The org
+ * @param {string} actor_person_id The caller
+ * @returns {object} {surveys: [...], mode_contracts, cohort_floor}
+ */
+exports.manageListAsync = async function(org_id, actor_person_id) {
+    const grants = await permissions.activeGrantsAsync(org_id, actor_person_id, {capability: "survey.publish"});
+    if (!grants.length) throw Object.assign(
+        new Error("survey.publish is required to manage surveys."),
+        {decision: {reason: "survey.publish is required to manage surveys."}});
+
+    const versions = await dblayer.getQueryOrThrow(
+        `SELECT v.* FROM survey_pointer p JOIN survey_version v ON v.survey_version_id = p.survey_version_id
+            WHERE p.org_id=? ORDER BY v.published_at DESC`, [org_id]);
+
+    const surveys = [];
+    for (const version of versions) {
+        const responded = await _respondedCountAsync(org_id, version);
+        const invited = version.mode == "anonymous" ? null :
+            (await dblayer.getQueryOrThrow(
+                "SELECT COUNT(*) AS c FROM survey_invitation WHERE org_id=? AND survey_version_id=?",
+                [org_id, version.survey_version_id]))[0].c;
+        surveys.push({survey_code: version.survey_code, version: version.version, title: version.title,
+            mode: version.mode, status: version.status, opens_on: version.opens_on,
+            closes_on: version.closes_on, owner_person_id: version.owner_person_id,
+            owner_response: version.owner_response || null, invited, responded,
+            published_at: version.published_at, withdrawn_reason: version.withdrawn_reason || null});
+    }
+    return {surveys, mode_contracts: MODE_CONTRACT, cohort_floor: COHORT_FLOOR};
+}
+
 // ---------------------------------------------------------------------------
 // the respondent side (Q2 list, Q3 questionnaire)
 // ---------------------------------------------------------------------------

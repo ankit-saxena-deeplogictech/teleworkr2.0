@@ -14,6 +14,7 @@
  *  op - track           - P6: completion status only (training.track)
  *  op - assign          - P6: manual assignment with a visible reason
  *  op - publish         - P1/P6: publish or supersede a course version
+ *  op - manage_list     - P1: every course the org has published, for the owner
  *
  * (C) 2026 TekMonks. All rights reserved.
  * License: See the enclosed LICENSE file.
@@ -91,6 +92,10 @@ exports.doService = async jsonReq => {
                     reissue_days: jsonReq.reissue_days});
                 return {...CONSTANTS.TRUE_RESULT, ...result};
             }
+            case "manage_list": {
+                const result = await training.courseManageListAsync(jsonReq.org, actor.person_id);
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
             default: return CONSTANTS.FALSE_RESULT;
         }
     } catch (err) {
@@ -106,7 +111,7 @@ const _actorAsync = async jsonReq => {
 }
 
 const OPS = ["verify", "catalogue", "course", "start_module", "save_attempt", "complete_module",
-    "pass_course", "certificates", "export_record", "track", "assign", "publish"];
+    "pass_course", "certificates", "export_record", "track", "assign", "publish", "manage_list"];
 
 const validateRequest = jsonReq => jsonReq && OPS.includes(jsonReq.op) &&
     (jsonReq.op == "verify" ? jsonReq.code : jsonReq.id && jsonReq.org);

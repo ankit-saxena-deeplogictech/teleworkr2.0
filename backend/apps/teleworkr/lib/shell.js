@@ -84,7 +84,18 @@ const SURFACES = Object.freeze({
     trainingtrack: {console: "Admin", label: "Training — assign & track", screen: "P6", order: 150, classification: CLASS.EXCLUSIVE,
         capability: "training.track"},
     surveybuild:   {console: "Admin", label: "Surveys — build & publish", screen: "Q5", order: 160, classification: CLASS.EXCLUSIVE,
-        capability: "survey.publish"}
+        capability: "survey.publish"},
+
+    // Recruitment (K) Phase 1: one screen, internally tabbed by capability —
+    // requisitions/workflows/pipeline. HR/admin only for now — TEAM-scoped
+    // hiring-manager access needs scope_ref plumbing (which team) that
+    // doesn't exist yet for any builtin role, not just this one, so it is
+    // deferred rather than granted at the wrong scope. candidate.read is
+    // the broadest of the K capabilities hr/admin hold, so it is the entry
+    // gate; narrower actions (workflow.publish, requisition.approve, and so
+    // on) gate their own regions inside the screen.
+    recruitment: {console: "Admin", label: "Recruitment", screen: "K1", order: 165, classification: CLASS.EXCLUSIVE,
+        capability: "candidate.read"}
 });
 
 /**

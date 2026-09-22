@@ -11,6 +11,7 @@
  *  op - extend_close    - Q5: the only field that may change after publish
  *  op - publish_results - Q5/Q4: results, with the owner response
  *  op - withdraw        - Q5: responses destroyed, withdrawal logged
+ *  op - manage_list     - Q5: every survey the org has published, for the owner
  *
  * (C) 2026 TekMonks. All rights reserved.
  * License: See the enclosed LICENSE file.
@@ -77,6 +78,10 @@ exports.doService = async jsonReq => {
                     reason: jsonReq.reason});
                 return {...CONSTANTS.TRUE_RESULT, ...result};
             }
+            case "manage_list": {
+                const result = await surveys.manageListAsync(jsonReq.org, actor.person_id);
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
             default: return CONSTANTS.FALSE_RESULT;
         }
     } catch (err) {
@@ -92,6 +97,6 @@ const _actorAsync = async jsonReq => {
 }
 
 const OPS = ["list", "survey", "save_answer", "submit", "results", "publish",
-    "extend_close", "publish_results", "withdraw"];
+    "extend_close", "publish_results", "withdraw", "manage_list"];
 
 const validateRequest = jsonReq => jsonReq && OPS.includes(jsonReq.op) && jsonReq.id && jsonReq.org;

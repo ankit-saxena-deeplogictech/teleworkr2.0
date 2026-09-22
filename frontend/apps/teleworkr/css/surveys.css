@@ -90,3 +90,23 @@
 .rate-n { font-size: 15px; color: var(--t1); }
 .sv-freetext { background: var(--raise); border-left: 2px solid var(--iris); border-radius: var(--r-sm);
     padding: 9px 12px; font-size: 12.5px; }
+
+/* ── Q5 build & publish ──
+   .build-* below is the generic repeatable-card builder pattern (a titled
+   card with a remove button, holding a repeatable list of sub-rows) — shared
+   with P's course/module builder in training.mjs. Not survey-specific, kept
+   here because this is where the pattern was first built. */
+.sv-manage-row { flex-wrap: wrap; row-gap: 8px; align-items: flex-start; }
+.sv-manage-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sv-mode-pick { display: flex; gap: 8px; flex-wrap: wrap; }
+.sv-mode-opt { display: flex; align-items: flex-start; gap: 9px; padding: 10px 13px; border-radius: var(--r-md);
+    border: 1px solid var(--stroke); cursor: pointer; flex: 1; min-width: 190px; transition: .13s var(--ease); }
+.sv-mode-opt:hover { background: var(--hover); }
+.sv-mode-opt.on { border-color: var(--brand); background: var(--brand-w); }
+.sv-mode-opt input { margin-top: 3px; flex: none; }
+.build-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--t2); }
+.build-section { background: var(--raise); border: 1px solid var(--stroke); border-radius: var(--r-md);
+    padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.build-q { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--r-sm);
+    padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.build-opts { display: flex; flex-direction: column; gap: 6px; }

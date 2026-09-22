@@ -37,14 +37,16 @@ let state = null;
 export async function render(root) {
     const caps = (await import("../shell.mjs")).shell.projection?.capabilities || [];
     state = {root, tab: window.location.hash == "#trainingtrack" ? "track" : "catalogue",
-        canTrack: caps.includes("training.track"), course: null, player: null, ticker: null};
+        canTrack: caps.includes("training.track"), canPublish: caps.includes("training.publish"),
+        course: null, player: null, ticker: null, composerOpen: false, draft: null};
     await _view();
 }
 
 async function _view() {
     const root = state.root;
     const tabs = [["catalogue", "Training"], ["certificates", "My certificates"],
-        ...(state.canTrack ? [["track", "Assign & track"]] : [])];
+        ...(state.canTrack ? [["track", "Assign & track"]] : []),
+        ...(state.canPublish ? [["courses", "Courses"]] : [])];
     root.innerHTML = `<div class="page tr">
         <div class="tr-tabs">${tabs.map(([id, label]) =>
             `<button class="tr-tab${state.tab == id ? " on" : ""}" data-tr="tab" data-tab="${id}">${label}</button>`).join("")}
@@ -61,6 +63,7 @@ async function _view() {
         if (state.course) return await _courseDetail(view, state.course);
         if (state.tab == "certificates") return await _certificates(view);
         if (state.tab == "track") return await _track(view);
+        if (state.tab == "courses") return await _courses(view);
         return await _catalogue(view);
     } catch (err) {
         view.innerHTML = states.error({title: "Couldn't load training",
@@ -379,6 +382,275 @@ async function _track(root) {
             due_date: due, reason});
         if (assigned) {states.toast({message: "Assigned. The reason is visible to the person."}); _track(root);}
     });
+}
+
+// ---------------------------------------------------------------------------
+// P1/P6 — courses: publish a course or a new version, gated on training.publish
+// ---------------------------------------------------------------------------
+
+async function _courses(root) {
+    root.innerHTML = `<div class="tr-band">${states.loading({rows: 3})}</div>`;
+    const board = await _rest("manage_list");
+    if (!board) return;
+    if (!state.draft) state.draft = _blankCourseDraft();
+    _renderCourses(root, board);
+}
+
+function _renderCourses(root, board) {
+    root.innerHTML = `
+        <div class="row"><span class="tr-band-title"><span class="code">Courses you manage</span></span>
+            <button class="btn pri push" data-tr="new">${state.composerOpen ? "Close" : "+ New course"}</button></div>
+        <div class="tr-card" style="padding:0">
+            ${board.courses.length ? board.courses.map(_courseRow).join("") :
+                `<div class="tr-empty">No courses published yet.</div>`}
+        </div>
+        ${state.composerOpen ? _courseComposerHtml(state.draft, board) : ""}`;
+
+    root.querySelector("[data-tr=\"new\"]").addEventListener("click", _ => {
+        state.composerOpen = !state.composerOpen; _renderCourses(root, board);});
+
+    for (const row of root.querySelectorAll("[data-course-row]"))
+        row.querySelector("[data-tr=\"new-version\"]")?.addEventListener("click", _ => {
+            const code = row.getAttribute("data-course-row");
+            const existing = board.courses.find(c => c.course_code == code);
+            state.draft = _blankCourseDraft();
+            if (existing) {
+                state.draft.code = existing.course_code; state.draft.title = existing.title;
+                state.draft.kind = existing.kind; state.draft.validity_years = existing.validity_years || "";
+                state.draft.jurisdictions = (existing.jurisdictions || []).join(", ");
+                for (const role of existing.recommended_roles || [])
+                    if (role in state.draft.roles) state.draft.roles[role] = true;
+            }
+            state.composerOpen = true; _renderCourses(root, board);
+        });
+
+    if (state.composerOpen) _wireCourseComposer(root, board);
+}
+
+const _courseRow = course => `
+    <div class="tr-track-row sv-manage-row" data-course-row="${states.esc(course.course_code)}">
+        <span class="grow"><b>${states.esc(course.title)}</b> ·
+            <span class="chip">${states.esc(course.kind)}</span> · v${course.version}</span>
+        <span class="sm t3">${states.esc(course.course_code)} · ${course.modules} module${course.modules == 1 ? "" : "s"} ·
+            ~${course.minutes}m · ${course.validity_years ? `certificate valid ${course.validity_years}y` : "no certificate expiry"} ·
+            ${course.assigned} assigned</span>
+        <span class="sv-manage-actions">
+            <button class="btn sm" data-tr="new-version">New version</button>
+        </span>
+    </div>`;
+
+// -- the composer: a fresh course version, in memory until Publish --
+
+function _blankCourseDraft() {
+    return {title: "", code: "", kind: "statutory", validity_years: "", pass_mark: 80,
+        jurisdictions: "", roles: {employee: false, lead: false, hr: false, admin: false},
+        invalidates: "none", reissue_days: 30, modules: [_blankModule()]};
+}
+const _blankModule = _ => ({title: "", minutes: 10, questions: []});
+const _blankCourseQuestion = _ => ({text: "", options: ["", ""], answer: 0});
+
+function _courseComposerHtml(draft, board) {
+    const existing = board.courses.find(c => c.course_code == draft.code);
+    return `<div class="tr-card">
+        <div class="tr-card-top">
+            <div class="grow"><h2 style="font-size:16px">${existing ? `New version of ${states.esc(existing.title)}` : "New course"}</h2>
+                <p class="sm t2">Title, a code, modules, and — for a course with questions — a pass mark.${
+                    existing ? " Modules aren't carried over from the previous version; re-enter them here." : ""}</p></div>
+            <button class="btn" data-tr="composer-close">Close</button>
+        </div>
+
+        <div class="row wrap">
+            <input class="inp grow" id="tc-title" placeholder="Title" value="${states.esc(draft.title)}">
+            <input class="inp" id="tc-code" placeholder="course-code" style="width:170px" value="${states.esc(draft.code)}">
+            <select class="inp" id="tc-kind">${board.kinds.map(kind =>
+                `<option value="${kind}"${draft.kind == kind ? " selected" : ""}>${states.esc(kind)}</option>`).join("")}</select>
+            <input class="inp" id="tc-validity" type="number" min="1" placeholder="certificate validity (years)" style="width:180px" value="${states.esc(draft.validity_years)}">
+            <input class="inp" id="tc-passmark" type="number" min="1" max="100" placeholder="pass mark %" style="width:120px" value="${draft.pass_mark}">
+        </div>
+        <span class="sm t3">Pass mark only matters if a module below has questions — a module with none is read-and-acknowledge.</span>
+
+        <div class="up t3">Audience</div>
+        <input class="inp grow" id="tc-juris" placeholder="Jurisdictions this course satisfies, comma-separated — blank means all" value="${states.esc(draft.jurisdictions)}">
+        <div class="row wrap">
+            ${Object.keys(draft.roles).map(role => `<label class="build-check">
+                <input type="checkbox" id="tc-role-${role}"${draft.roles[role] ? " checked" : ""}> ${role}</label>`).join("")}
+        </div>
+        <span class="sm t3">Recommended-for roles — an invitation, not an obligation, unlike a jurisdiction match.</span>
+
+        ${existing ? `
+        <div class="up t3">This code is already published — v${existing.version}</div>
+        <div class="row wrap">
+            <select class="inp" id="tc-invalidates">${board.invalidations.map(inv =>
+                `<option value="${inv}"${draft.invalidates == inv ? " selected" : ""}>${states.esc(inv)}</option>`).join("")}</select>
+            ${draft.invalidates == "major" ? `<input class="inp" id="tc-reissue" type="number" min="0" placeholder="reissue in (days)" style="width:170px" value="${draft.reissue_days}">` : ""}
+        </div>
+        <span class="sm t3">${draft.invalidates == "none" ?
+            "Typo fix — nobody retakes, certificates stay valid." : draft.invalidates == "minor" ?
+            "Existing certificates stay valid to expiry; new enrolments get this version." :
+            "Every live assignment is superseded and reissued with a fresh due date — everyone told why."}</span>` : ""}
+
+        <div class="up t3">Modules</div>
+        ${draft.modules.map((module, mi) => _courseModuleHtml(module, mi)).join("")}
+        <button class="btn sm" data-tr="add-module">+ Module</button>
+
+        <div class="row">
+            <button class="btn pri push" data-tr="publish">Publish…</button>
+        </div>
+    </div>`;
+}
+
+function _courseModuleHtml(module, mi) {
+    return `<div class="build-section" data-section="${mi}">
+        <div class="row wrap">
+            <input class="inp grow" placeholder="Module title" data-mod-title value="${states.esc(module.title)}">
+            <input class="inp" type="number" min="0" placeholder="minutes" data-mod-minutes value="${module.minutes}" style="width:100px">
+            <button class="btn sm" data-tr="remove-module">Remove module</button>
+        </div>
+        ${module.questions.map((q, qi) => _courseQuestionHtml(q, mi, qi)).join("")}
+        <button class="btn sm" data-tr="add-question">+ Question</button>
+    </div>`;
+}
+
+function _courseQuestionHtml(q, mi, qi) {
+    return `<div class="build-q" data-qi="${qi}">
+        <div class="row wrap">
+            <input class="inp grow" placeholder="Question text" data-q-text value="${states.esc(q.text)}">
+            <button class="btn sm" data-tr="remove-question">Remove</button>
+        </div>
+        <div class="build-opts">
+            ${q.options.map((option, oi) => `<div class="row" data-oi="${oi}">
+                <label class="build-check"><input type="radio" name="tc-answer-${mi}-${qi}" data-q-answer${q.answer == oi ? " checked" : ""}> correct</label>
+                <input class="inp grow" placeholder="Option ${String.fromCharCode(97 + oi)}" data-q-opt value="${states.esc(option)}">
+                ${q.options.length > 2 ? `<button class="btn sm" data-tr="remove-option">×</button>` : ""}
+            </div>`).join("")}
+            <button class="btn sm" data-tr="add-option">+ Option</button>
+        </div>
+    </div>`;
+}
+
+function _wireCourseComposer(root, board) {
+    root.querySelector("[data-tr=\"composer-close\"]").addEventListener("click", _ => {
+        state.composerOpen = false; _renderCourses(root, board);});
+    root.querySelector("#tc-invalidates")?.addEventListener("change", _ => {
+        _syncCourseDraft(root); _renderCourses(root, board);});
+
+    root.querySelector("[data-tr=\"add-module\"]")?.addEventListener("click", _ => {
+        _syncCourseDraft(root); state.draft.modules.push(_blankModule()); _renderCourses(root, board);});
+    for (const button of root.querySelectorAll("[data-tr=\"remove-module\"]"))
+        button.addEventListener("click", _ => {
+            const mi = Number(button.closest(".build-section").getAttribute("data-section"));
+            _syncCourseDraft(root); state.draft.modules.splice(mi, 1); _renderCourses(root, board);});
+    for (const button of root.querySelectorAll("[data-tr=\"add-question\"]"))
+        button.addEventListener("click", _ => {
+            const mi = Number(button.closest(".build-section").getAttribute("data-section"));
+            _syncCourseDraft(root); state.draft.modules[mi].questions.push(_blankCourseQuestion()); _renderCourses(root, board);});
+    for (const button of root.querySelectorAll("[data-tr=\"remove-question\"]"))
+        button.addEventListener("click", _ => {
+            const mi = Number(button.closest(".build-section").getAttribute("data-section"));
+            const qi = Number(button.closest(".build-q").getAttribute("data-qi"));
+            _syncCourseDraft(root); state.draft.modules[mi].questions.splice(qi, 1); _renderCourses(root, board);});
+    for (const button of root.querySelectorAll("[data-tr=\"add-option\"]"))
+        button.addEventListener("click", _ => {
+            const mi = Number(button.closest(".build-section").getAttribute("data-section"));
+            const qi = Number(button.closest(".build-q").getAttribute("data-qi"));
+            _syncCourseDraft(root); state.draft.modules[mi].questions[qi].options.push(""); _renderCourses(root, board);});
+    for (const button of root.querySelectorAll("[data-tr=\"remove-option\"]"))
+        button.addEventListener("click", _ => {
+            const mi = Number(button.closest(".build-section").getAttribute("data-section"));
+            const qi = Number(button.closest(".build-q").getAttribute("data-qi"));
+            const oi = Number(button.closest("[data-oi]").getAttribute("data-oi"));
+            _syncCourseDraft(root);
+            const q = state.draft.modules[mi].questions[qi];
+            if (oi === q.answer) q.answer = 0;         // the removed option was correct — fall back
+            else if (oi < q.answer) q.answer -= 1;      // options after it shift down by one
+            q.options.splice(oi, 1);
+            _renderCourses(root, board);});
+
+    root.querySelector("[data-tr=\"publish\"]")?.addEventListener("click", _ => _doCoursePublish(root, board));
+}
+
+// reads the composer's plain DOM inputs back into state.draft — same
+// read-on-demand shape the assign form above uses, for a nested structure
+function _syncCourseDraft(root) {
+    const d = state.draft;
+    const field = id => root.querySelector(`#${id}`);
+    if (field("tc-title")) d.title = field("tc-title").value;
+    if (field("tc-code")) d.code = field("tc-code").value.trim().toLowerCase();
+    if (field("tc-kind")) d.kind = field("tc-kind").value;
+    if (field("tc-validity")) d.validity_years = field("tc-validity").value;
+    if (field("tc-passmark")) d.pass_mark = field("tc-passmark").value;
+    if (field("tc-juris")) d.jurisdictions = field("tc-juris").value;
+    for (const role of Object.keys(d.roles)) if (field(`tc-role-${role}`)) d.roles[role] = field(`tc-role-${role}`).checked;
+    if (field("tc-invalidates")) d.invalidates = field("tc-invalidates").value;
+    if (field("tc-reissue")) d.reissue_days = field("tc-reissue").value;
+
+    for (const modEl of root.querySelectorAll(".build-section")) {
+        const module = d.modules[Number(modEl.getAttribute("data-section"))];
+        if (!module) continue;
+        const title = modEl.querySelector("[data-mod-title]"); if (title) module.title = title.value;
+        const minutes = modEl.querySelector("[data-mod-minutes]"); if (minutes) module.minutes = minutes.value;
+        for (const qEl of modEl.querySelectorAll(".build-q")) {
+            const q = module.questions[Number(qEl.getAttribute("data-qi"))];
+            if (!q) continue;
+            q.text = qEl.querySelector("[data-q-text]")?.value ?? q.text;
+            for (const optEl of qEl.querySelectorAll("[data-oi]")) {
+                const oi = Number(optEl.getAttribute("data-oi"));
+                const input = optEl.querySelector("[data-q-opt]");
+                if (input) q.options[oi] = input.value;
+                if (optEl.querySelector("[data-q-answer]")?.checked) q.answer = oi;
+            }
+        }
+    }
+}
+
+async function _doCoursePublish(root, board) {
+    _syncCourseDraft(root);
+    const d = state.draft;
+    if (!d.title.trim()) {states.toast({message: "A course needs a title."}); return;}
+    if (!/^[a-z0-9-]{2,64}$/.test(d.code)) {
+        states.toast({message: "The code must be lowercase letters, digits and dashes (2-64)."}); return;}
+    if (!d.modules.length) {states.toast({message: "A course needs at least one module."}); return;}
+
+    const modules = d.modules.map((module, mi) => {
+        const minutes = Number(module.minutes);
+        const built = {id: `m${mi + 1}`, title: module.title.trim() || `Module ${mi + 1}`,
+            minutes: Number.isInteger(minutes) && minutes >= 0 ? minutes : 0};
+        const questions = module.questions.filter(q => q.text.trim());
+        if (questions.length) built.questions = questions.map((q, qi) => {
+            // resolve the answer's code before filtering blanks out — filtering
+            // shifts array indices, so looking answer up by index afterwards
+            // would silently point at the wrong option once any earlier option
+            // in the list is blank
+            const mapped = q.options.map((text, oi) => ({code: String.fromCharCode(97 + oi), text: text.trim()}));
+            const answerCode = mapped[q.answer]?.code;
+            const options = mapped.filter(option => option.text);
+            return {id: `m${mi + 1}q${qi + 1}`, text: q.text.trim(), type: "choice", options,
+                answer: options.some(option => option.code == answerCode) ? answerCode : options[0]?.code};
+        });
+        return built;
+    });
+    const hasQuestions = modules.some(module => (module.questions || []).length);
+    const passMark = Number(d.pass_mark);
+    if (hasQuestions && (!Number.isInteger(passMark) || passMark < 1 || passMark > 100)) {
+        states.toast({message: "A course with questions needs a pass mark between 1 and 100."}); return;
+    }
+
+    const request = {course_code: d.code, title: d.title.trim(), kind: d.kind, modules,
+        jurisdictions: d.jurisdictions.split(",").map(j => j.trim()).filter(Boolean),
+        recommended_roles: Object.entries(d.roles).filter(([, on]) => on).map(([role]) => role)};
+    if (d.validity_years) request.validity_years = Number(d.validity_years);
+    if (hasQuestions) request.pass_mark = passMark;
+    if (board.courses.some(c => c.course_code == d.code)) {
+        request.invalidates = d.invalidates;
+        if (d.invalidates == "major") request.reissue_days = Number(d.reissue_days) || 30;
+    }
+
+    const response = await _rest("publish", request);
+    if (!response) return;
+    states.toast({message: `Published — v${response.version}.${response.reassigned ?
+        ` ${response.reassigned} live assignment${response.reassigned == 1 ? "" : "s"} reissued.` : ""}`, ms: 9000});
+    state.draft = null; state.composerOpen = false;
+    await _courses(root);
 }
 
 // ---------------------------------------------------------------------------

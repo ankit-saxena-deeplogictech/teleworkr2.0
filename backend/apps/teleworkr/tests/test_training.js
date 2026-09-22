@@ -59,6 +59,7 @@ exports.runTestsAsync = async function(argv) {
         await _testCertificates(w);
         await _testTracking(w);
         await _testReissue(w);
+        await _testManageList(w);
     } catch (err) {
         failed++; LOG.console(`  FAIL  training tests threw: ${err}\n`); LOG.error(`Training tests threw: ${err.stack}`);
     } finally {
@@ -297,6 +298,31 @@ async function _testReissue(w) {
         [w.org_id]);
     _check("the reissued assignment names the rule",
         rows.length == 1 && rows[0].reason == "course_reissued", JSON.stringify(rows));
+}
+
+/** The management list — an owner sees every published course's current state; nobody else can. */
+async function _testManageList(w) {
+    LOG.console("\n the management list\n");
+    await _checkThrows("an employee with no training.publish grant cannot list courses to manage",
+        _ => training.courseManageListAsync(w.org_id, w.alice));
+
+    const board = await training.courseManageListAsync(w.org_id, w.carol);
+    _check("the publish-time enums ride along, single-sourced",
+        board.kinds.includes("statutory") && board.invalidations.includes("major"),
+        JSON.stringify(board.kinds));
+
+    const hcd = board.courses.find(c => c.course_code == "hcd");
+    _check("a reissued course reports its current version, kind and the major invalidation",
+        hcd?.version == 3 && hcd.kind == "statutory" && hcd.invalidates == "major" && hcd.assigned == 1,
+        JSON.stringify(hcd));
+
+    const infosec = board.courses.find(c => c.course_code == "infosec");
+    _check("assigned counts reflect live assignments only",
+        infosec?.assigned == 1, JSON.stringify(infosec));
+
+    const optional = board.courses.find(c => c.course_code == "facilitation");
+    _check("an unassigned optional course reports zero, not a missing field",
+        optional?.assigned === 0, JSON.stringify(optional));
 }
 
 async function _buildWorld() {

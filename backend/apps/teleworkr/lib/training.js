@@ -192,6 +192,39 @@ exports.assignCourseAsync = async function(request) {
         }});
 }
 
+/**
+ * The management list — every course the org has published, current version
+ * only, with the count of live assignments an owner needs before deciding to
+ * publish a change. Read-gated the same way `surveys.js`'s `manageListAsync`
+ * gates Q5: a caller with no `training.publish` grant is refused rather than
+ * shown an empty list.
+ *
+ * Returns the two publish-time enums alongside the rows so the builder's
+ * dropdowns are never a hand-copied list.
+ *
+ * @param {string} org_id The org
+ * @param {string} actor_person_id The caller
+ * @returns {object} {courses: [...], kinds, invalidations}
+ */
+exports.courseManageListAsync = async function(org_id, actor_person_id) {
+    const grants = await permissions.activeGrantsAsync(org_id, actor_person_id, {capability: "training.publish"});
+    if (!grants.length) throw Object.assign(
+        new Error("training.publish is required to manage courses."),
+        {decision: {reason: "training.publish is required to manage courses."}});
+
+    const versions = await dblayer.getQueryOrThrow(
+        `SELECT v.* FROM course_pointer p JOIN course_version v ON v.course_version_id = p.course_version_id
+            WHERE p.org_id=? ORDER BY v.published_at DESC`, [org_id]);
+    const assignedCounts = await dblayer.getQueryOrThrow(
+        `SELECT course_code, COUNT(*) AS c FROM course_assignment
+            WHERE org_id=? AND status='assigned' GROUP BY course_code`, [org_id]);
+    const assignedByCode = Object.fromEntries(assignedCounts.map(row => [row.course_code, row.c]));
+
+    const courses = versions.map(version => ({..._versionCard(version),
+        invalidates: version.invalidates, assigned: assignedByCode[version.course_code] || 0}));
+    return {courses, kinds: COURSE_KINDS, invalidations: INVALIDATIONS};
+}
+
 // ---------------------------------------------------------------------------
 // the learner side (P2 catalogue, P3 detail, P4 player)
 // ---------------------------------------------------------------------------
@@ -900,3 +933,5 @@ const _json = value => {if (!value) return null; try {return JSON.parse(value);}
 const _emptySummary = _ => ({assigned: 0, complete: 0, open: 0, overdue: 0, certificates_expiring: 0});
 
 exports.TRAINING_CATEGORY = TRAINING_CATEGORY;
+exports.COURSE_KINDS = COURSE_KINDS;
+exports.INVALIDATIONS = INVALIDATIONS;
