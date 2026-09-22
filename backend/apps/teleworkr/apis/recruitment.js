@@ -18,6 +18,13 @@
  *  op - reschedule_panel    - K6: move a panel (also the engine's `rescheduled` transition)
  *  op - panel_outcome       - K6: completed (logs interviewer time) | cancelled | no_show
  *  op - interviewer_load    - K6: panels and hours per interviewer over a date range
+ *  op - build_offer         - K8: the first version of an offer, route computed from its terms
+ *  op - approve_offer       - K8: one approval; distinct-approver enforced by the schema
+ *  op - send_offer          - K8: approved -> sent (no e-signature integration)
+ *  op - offer_viewed        - K8: sent -> viewed
+ *  op - negotiate_offer     - K8: supersedes the current version, re-routes if it crosses a tier
+ *  op - offer_outcome       - K8: accepted | declined (taxonomy reason) | expired | withdrawn (reason)
+ *  op - offers              - K8: an application's full offer version history
  *
  * Interviewer availability itself is read from the calendar API's `board` op —
  * the E3 board with leave wired in — rather than duplicated here.
@@ -49,6 +56,7 @@ exports.doService = async jsonReq => {
                     actor_person_id: actor.person_id, title: jsonReq.title, team: jsonReq.team,
                     positions: jsonReq.positions, req_type: jsonReq.req_type, location: jsonReq.location,
                     employment_type: jsonReq.employment_type, band: jsonReq.band,
+                    band_min: jsonReq.band_min, band_max: jsonReq.band_max,
                     target_start: jsonReq.target_start, workflow_code: jsonReq.workflow_code});
                 return {...CONSTANTS.TRUE_RESULT, ...result};
             }
@@ -132,6 +140,51 @@ exports.doService = async jsonReq => {
                     jsonReq.from_date, jsonReq.to_date);
                 return {...CONSTANTS.TRUE_RESULT, ...result};
             }
+            case "build_offer": {
+                const result = await recruitment.buildOfferAsync({org_id: jsonReq.org,
+                    actor_person_id: actor.person_id, application_id: jsonReq.application_id,
+                    fixed_amount: jsonReq.fixed_amount, variable_amount: jsonReq.variable_amount,
+                    joining_bonus: jsonReq.joining_bonus, start_date: jsonReq.start_date,
+                    expires_on: jsonReq.expires_on, rationale: jsonReq.rationale,
+                    letter_note: jsonReq.letter_note, client_event_id: jsonReq.client_event_id});
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
+            case "approve_offer": {
+                const result = await recruitment.approveOfferAsync({org_id: jsonReq.org,
+                    actor_person_id: actor.person_id, offer_version_id: jsonReq.offer_version_id});
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
+            case "send_offer": {
+                const result = await recruitment.sendOfferAsync({org_id: jsonReq.org,
+                    actor_person_id: actor.person_id, offer_version_id: jsonReq.offer_version_id});
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
+            case "offer_viewed": {
+                const result = await recruitment.recordOfferViewedAsync({org_id: jsonReq.org,
+                    actor_person_id: actor.person_id, offer_version_id: jsonReq.offer_version_id});
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
+            case "negotiate_offer": {
+                const result = await recruitment.negotiateOfferAsync({org_id: jsonReq.org,
+                    actor_person_id: actor.person_id, offer_version_id: jsonReq.offer_version_id,
+                    fixed_amount: jsonReq.fixed_amount, variable_amount: jsonReq.variable_amount,
+                    joining_bonus: jsonReq.joining_bonus, start_date: jsonReq.start_date,
+                    expires_on: jsonReq.expires_on, rationale: jsonReq.rationale,
+                    letter_note: jsonReq.letter_note});
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
+            case "offer_outcome": {
+                const result = await recruitment.recordOfferOutcomeAsync({org_id: jsonReq.org,
+                    actor_person_id: actor.person_id, offer_version_id: jsonReq.offer_version_id,
+                    outcome: jsonReq.outcome, decline_reason: jsonReq.decline_reason,
+                    decline_detail: jsonReq.decline_detail, reason: jsonReq.reason});
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
+            case "offers": {
+                const result = await recruitment.offersForApplicationAsync(jsonReq.org, actor.person_id,
+                    jsonReq.application_id);
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
             default: return CONSTANTS.FALSE_RESULT;
         }
     } catch (err) {
@@ -148,6 +201,7 @@ const _actorAsync = async jsonReq => {
 
 const OPS = ["publish_workflow", "workflows", "raise_requisition", "approve_requisition", "requisitions",
     "apply", "board", "candidate", "legal_actions", "transition", "scorecard",
-    "update_candidate", "schedule_panel", "reschedule_panel", "panel_outcome", "interviewer_load"];
+    "update_candidate", "schedule_panel", "reschedule_panel", "panel_outcome", "interviewer_load",
+    "build_offer", "approve_offer", "send_offer", "offer_viewed", "negotiate_offer", "offer_outcome", "offers"];
 
 const validateRequest = jsonReq => jsonReq && OPS.includes(jsonReq.op) && jsonReq.id && jsonReq.org;

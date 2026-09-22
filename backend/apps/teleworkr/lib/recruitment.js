@@ -65,6 +65,7 @@ const INTERVIEW_CATEGORY = "interview_panel";   // the time ledger's category, a
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const _now = _ => Math.floor(Date.now()/1000);
+const _today = _ => new Date().toISOString().substring(0, 10);
 const _uuid = _ => serverutils.generateUUID(false);
 
 // ---------------------------------------------------------------------------
@@ -151,7 +152,10 @@ exports.workflowsAsync = async function(org_id, actor_person_id) {
  * applicant to THIS requisition will inherit).
  *
  * @param {object} request {org_id, actor_person_id, title, team, positions,
- *      req_type, location, employment_type, band, target_start, workflow_code}
+ *      req_type, location, employment_type, band, band_min, band_max,
+ *      target_start, workflow_code} — band_min/band_max are optional, but an
+ *      offer built against this requisition can only compute a percentile
+ *      when they're set (K8)
  * @returns The requisition row
  */
 exports.raiseRequisitionAsync = async function(request) {
@@ -161,6 +165,9 @@ exports.raiseRequisitionAsync = async function(request) {
     _assertISODate(request.target_start, "target_start");
     if (request.req_type && !REQ_TYPES.includes(request.req_type)) throw new Error(
         `req_type must be one of ${REQ_TYPES.join(", ")}.`);
+    if ((request.band_min != null || request.band_max != null) &&
+        !(Number.isInteger(request.band_min) && Number.isInteger(request.band_max) && request.band_max > request.band_min))
+        throw new Error("band_min and band_max, when either is set, must both be integers with band_max greater than band_min.");
     const pointer = await dblayer.getQueryOrThrow(
         "SELECT workflow_version_id FROM workflow_pointer WHERE org_id=? AND workflow_code=?",
         [request.org_id, request.workflow_code]);
@@ -178,15 +185,17 @@ exports.raiseRequisitionAsync = async function(request) {
                 team: request.team || null, positions: Number.isInteger(request.positions) ? request.positions : 1,
                 req_type: request.req_type || "new", location: request.location || null,
                 employment_type: request.employment_type || null, band: request.band || null,
+                band_min: request.band_min ?? null, band_max: request.band_max ?? null,
                 target_start: request.target_start, workflow_code: request.workflow_code,
                 workflow_version_id: pointer[0].workflow_version_id, status: "pending_approval",
                 raised_by: request.actor_person_id, created_at: _now(), created_by: request.actor_person_id};
             await exec.runCmd(`INSERT INTO requisition (requisition_id, org_id, title, team, positions, req_type,
-                    location, employment_type, band, target_start, workflow_code, workflow_version_id, status,
-                    raised_by, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                    location, employment_type, band, band_min, band_max, target_start, workflow_code,
+                    workflow_version_id, status, raised_by, created_at, created_by)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
                 [row.requisition_id, row.org_id, row.title, row.team, row.positions, row.req_type, row.location,
-                    row.employment_type, row.band, row.target_start, row.workflow_code, row.workflow_version_id,
-                    row.status, row.raised_by, row.created_at, row.created_by]);
+                    row.employment_type, row.band, row.band_min, row.band_max, row.target_start, row.workflow_code,
+                    row.workflow_version_id, row.status, row.raised_by, row.created_at, row.created_by]);
             return row;
         }});
 }
@@ -579,13 +588,15 @@ exports.candidateRecordAsync = async function(org_id, actor_person_id, applicati
     const panels = (await dblayer.getQueryOrThrow(
         "SELECT * FROM panel_assignment WHERE org_id=? AND application_id=? ORDER BY scheduled_start ASC",
         [org_id, application_id])).map(row => _panelRow(row, names));
+    const offers = await _offersWithApprovalsAsync(org_id, application_id, actor_person_id);
 
     return {candidate, requisition: requisition ? {requisition_id: requisition.requisition_id,
-            title: requisition.title, band: requisition.band} : null,
+            title: requisition.title, band: requisition.band, band_min: requisition.band_min,
+            band_max: requisition.band_max} : null,
         application: {application_id, applied_at: application.applied_at, applied_via: application.applied_via,
             workflow_version: version.version},
-        workflow: projected.rounds, terminal: projected.terminal, evaluations, activity, panels,
-        recommendations: RECOMMENDATIONS};
+        workflow: projected.rounds, terminal: projected.terminal, evaluations, activity, panels, offers,
+        recommendations: RECOMMENDATIONS, decline_reasons: DECLINE_REASONS};
 }
 
 // ---------------------------------------------------------------------------
@@ -822,6 +833,334 @@ exports.interviewerLoadAsync = async function(org_id, actor_person_id, from_date
     }
     return {from_date, to_date, interviewers: [...byPerson.values()]
         .sort((a, b) => String(a.name).localeCompare(String(b.name)))};
+}
+
+// ---------------------------------------------------------------------------
+// K8 — offer, approval matrix & acceptance
+//
+// The wireframe's matrix names specific approver roles (hiring manager, HR,
+// Finance); this app's permission model has none of those as a role. What
+// survives here is the mechanism, not the names: the offer computes a
+// REQUIRED-APPROVAL-COUNT from its own band position and bonus size, and
+// each approval must come from a distinct person (offer_approval's own
+// unique index enforces that — not application logic that could drift).
+// ---------------------------------------------------------------------------
+
+const DECLINE_REASONS = Object.freeze(["compensation", "counter_offer", "another_offer", "location",
+    "role_scope", "timing", "personal", "other"]);
+const OFFER_TERMINAL = Object.freeze(["accepted", "declined", "expired", "withdrawn"]);
+
+/**
+ * Computes the percentile of `fixed_amount` within [band_min, band_max]
+ * (clamped 0-100; null when the requisition declared no band, in which case
+ * the offer is simply routed as within-band-low, since there is nothing to
+ * be a deviation from), and the required-approval count from it: 1 within
+ * band at or below the 75th percentile; 2 above the 75th percentile, or
+ * when joining_bonus exceeds 10% of fixed_amount (a relative stand-in for
+ * the wireframe's currency-specific "over ₹1L" example); 3 above the band
+ * entirely.
+ */
+function _offerRoute(fixed_amount, joining_bonus, band_min, band_max) {
+    let percentile = null, aboveBand = false;
+    if (Number.isInteger(band_min) && Number.isInteger(band_max) && band_max > band_min) {
+        aboveBand = fixed_amount > band_max;
+        percentile = Math.round(Math.max(0, Math.min(1, (fixed_amount - band_min)/(band_max - band_min))) * 100);
+    }
+    const bigBonus = Number.isInteger(joining_bonus) && joining_bonus > fixed_amount*0.1;
+    const required_approvals = aboveBand ? 3 : ((percentile != null && percentile > 75) || bigBonus) ? 2 : 1;
+    return {percentile, required_approvals};
+}
+
+/**
+ * Builds the first version of an offer. Only legal once the candidate has
+ * passed every round — reuses the engine's own projection rather than
+ * re-deciding "is this application ready for an offer" here.
+ *
+ * @param {object} request {org_id, actor_person_id, application_id,
+ *      fixed_amount, variable_amount, joining_bonus, start_date, expires_on,
+ *      rationale, letter_note, client_event_id}
+ * @returns The offer_version row
+ */
+exports.buildOfferAsync = async function(request) {
+    const application = await _applicationAsync(request.org_id, request.application_id);
+    if (!application) throw new Error(`No application ${request.application_id}.`);
+    // Idempotency is checked before any state-dependent validation, for the
+    // same reason recordTransitionAsync checks it first: a replay arrives
+    // after the build it is replaying already landed, so by then "does this
+    // application already have an offer" would (correctly) be true and
+    // would refuse it — which must not turn an idempotent retry into a
+    // spurious failure.
+    if (request.client_event_id) {
+        const replay = await dblayer.getQueryOrThrow(
+            "SELECT * FROM offer_version WHERE org_id=? AND client_event_id=?",
+            [request.org_id, request.client_event_id]);
+        if (replay.length) return replay[0];
+    }
+
+    const projected = await _projectAsync(request.org_id, application);
+    if (projected.terminal?.kind != "completed") throw new Error(
+        "An offer can only be built once the candidate has passed every round.");
+    const existing = await dblayer.getQueryOrThrow(
+        "SELECT COUNT(*) AS c FROM offer_version WHERE org_id=? AND application_id=?",
+        [request.org_id, request.application_id]);
+    if (existing[0].c) throw new Error(
+        "This application already has an offer — negotiate the existing one instead of building a second.");
+
+    const offer = _validateOfferTerms(request);
+    const requisition = await _requisitionAsync(request.org_id, application.requisition_id);
+    const {percentile, required_approvals} = _offerRoute(offer.fixed_amount, offer.joining_bonus,
+        requisition?.band_min, requisition?.band_max);
+    if (required_approvals > 1 && !offer.rationale) throw new Error(
+        "This offer is above the 75th percentile of the band (or above it, or carries a large joining bonus) — not blocked, but it needs the deviation rationale.");
+
+    const offerVersionId = _uuid();
+    return await audit.performAsync({
+        org_id: request.org_id, actor_person_id: request.actor_person_id,
+        capability: "offer.approve",
+        audit: {action: "recruitment.offer_built", object_type: "application", object_ref: request.application_id,
+            detail: {offer_version_id: offerVersionId, version: 1, required_approvals, percentile}},
+
+        action: async exec => {
+            if (request.client_event_id) {
+                const found = await exec.getQuery(
+                    "SELECT * FROM offer_version WHERE org_id=? AND client_event_id=?",
+                    [request.org_id, request.client_event_id]);
+                if (found.length) return found[0];
+            }
+            const row = {offer_version_id: offerVersionId, org_id: request.org_id,
+                application_id: request.application_id, version: 1, status: "pending_approval",
+                fixed_amount: offer.fixed_amount, variable_amount: offer.variable_amount,
+                joining_bonus: offer.joining_bonus, start_date: offer.start_date, expires_on: offer.expires_on,
+                band_min: requisition?.band_min ?? null, band_max: requisition?.band_max ?? null,
+                percentile, rationale: offer.rationale, required_approvals, decline_reason: null,
+                decline_detail: null, superseded_by_version_id: null, letter_note: offer.letter_note,
+                offered_by: request.actor_person_id, created_at: _now(), sent_at: null, responded_at: null,
+                withdrawn_at: null, withdrawn_reason: null, client_event_id: request.client_event_id || null};
+            await exec.runCmd(`INSERT INTO offer_version (offer_version_id, org_id, application_id, version,
+                    status, fixed_amount, variable_amount, joining_bonus, start_date, expires_on, band_min,
+                    band_max, percentile, rationale, required_approvals, decline_reason, decline_detail,
+                    superseded_by_version_id, letter_note, offered_by, created_at, sent_at, responded_at,
+                    withdrawn_at, withdrawn_reason, client_event_id)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                [row.offer_version_id, row.org_id, row.application_id, row.version, row.status,
+                    row.fixed_amount, row.variable_amount, row.joining_bonus, row.start_date, row.expires_on,
+                    row.band_min, row.band_max, row.percentile, row.rationale, row.required_approvals,
+                    row.decline_reason, row.decline_detail, row.superseded_by_version_id, row.letter_note,
+                    row.offered_by, row.created_at, row.sent_at, row.responded_at, row.withdrawn_at,
+                    row.withdrawn_reason, row.client_event_id]);
+            return row;
+        }});
+}
+
+/**
+ * Records one approval. Self-approval is blocked by the same SOD rule that
+ * already guards `requisition.approve` (`offer.approve` was added to
+ * `sod.self_approval.applies_to`). A second approval from the same person
+ * is refused by `offer_approval`'s own unique index — that refusal is what
+ * makes "distinct" a fact of the data, not a promise from this function.
+ */
+exports.approveOfferAsync = async function(request) {
+    const offer = await _offerAsync(request.org_id, request.offer_version_id);
+    if (!offer) throw new Error(`No offer ${request.offer_version_id}.`);
+    if (offer.status != "pending_approval") throw new Error(
+        `This offer is ${offer.status}, not pending approval.`);
+
+    const result = await audit.performAsync({
+        org_id: request.org_id, actor_person_id: request.actor_person_id,
+        capability: "offer.approve", subject_person_id: offer.offered_by,
+        audit: {action: "recruitment.offer_approval_recorded", object_type: "application",
+            object_ref: offer.application_id, detail: {offer_version_id: offer.offer_version_id}},
+
+        action: async exec => {
+            const already = await exec.getQuery(
+                "SELECT * FROM offer_approval WHERE org_id=? AND offer_version_id=? AND approver_person_id=?",
+                [request.org_id, offer.offer_version_id, request.actor_person_id]);
+            if (already.length) throw new Error("You have already approved this offer.");
+            await exec.runCmd(`INSERT INTO offer_approval (offer_approval_id, org_id, offer_version_id,
+                    approver_person_id, approved_at) VALUES (?,?,?,?,?)`,
+                [_uuid(), request.org_id, offer.offer_version_id, request.actor_person_id, _now()]);
+            const count = (await exec.getQuery(
+                "SELECT COUNT(*) AS c FROM offer_approval WHERE org_id=? AND offer_version_id=?",
+                [request.org_id, offer.offer_version_id]))[0].c;
+            const approved = count >= offer.required_approvals;
+            if (approved) await exec.runCmd("UPDATE offer_version SET status='approved' WHERE offer_version_id=?",
+                [offer.offer_version_id]);
+            return {approvals_received: count, required_approvals: offer.required_approvals, approved};
+        }});
+    return {...result, offer: await _offerAsync(request.org_id, request.offer_version_id)};
+}
+
+/** approved → sent. No e-signature integration — this is a status the sender sets. */
+exports.sendOfferAsync = async function(request) {
+    return await _transitionOfferAsync(request, "approved", "sent",
+        "recruitment.offer_sent", exec => exec.runCmd(
+            "UPDATE offer_version SET status='sent', sent_at=? WHERE offer_version_id=?", [_now(), request.offer_version_id]));
+}
+
+/** sent → viewed. */
+exports.recordOfferViewedAsync = async function(request) {
+    return await _transitionOfferAsync(request, "sent", "viewed",
+        "recruitment.offer_viewed", exec => exec.runCmd(
+            "UPDATE offer_version SET status='viewed' WHERE offer_version_id=?", [request.offer_version_id]));
+}
+
+async function _transitionOfferAsync(request, fromStatus, toStatus, action, write) {
+    const offer = await _offerAsync(request.org_id, request.offer_version_id);
+    if (!offer) throw new Error(`No offer ${request.offer_version_id}.`);
+    if (offer.status != fromStatus) throw new Error(`This offer is ${offer.status}, not ${fromStatus}.`);
+    return await audit.performAsync({
+        org_id: request.org_id, actor_person_id: request.actor_person_id, capability: "offer.approve",
+        audit: {action, object_type: "application", object_ref: offer.application_id,
+            detail: {offer_version_id: offer.offer_version_id}},
+        action: async exec => {await write(exec); return {offer_version_id: offer.offer_version_id, status: toStatus};}});
+}
+
+/**
+ * A negotiation supersedes the current version and inserts the next — same
+ * versioned-with-supersession shape as everywhere else in this schema.
+ * Version 1 is retained, exactly as the wireframe asks. Re-routes: the new
+ * terms get their own percentile and required_approvals, computed fresh —
+ * a revision that crosses a tier is not quietly waved through on the old
+ * route.
+ *
+ * @param {object} request {org_id, actor_person_id, offer_version_id,
+ *      fixed_amount, variable_amount, joining_bonus, start_date, expires_on,
+ *      rationale, letter_note}
+ */
+exports.negotiateOfferAsync = async function(request) {
+    const current = await _offerAsync(request.org_id, request.offer_version_id);
+    if (!current) throw new Error(`No offer ${request.offer_version_id}.`);
+    if (!["sent", "viewed", "negotiating"].includes(current.status)) throw new Error(
+        `This offer is ${current.status} — only a sent offer can be negotiated.`);
+    const offer = _validateOfferTerms(request);
+    const {percentile, required_approvals} = _offerRoute(offer.fixed_amount, offer.joining_bonus,
+        current.band_min, current.band_max);
+    if (required_approvals > 1 && !offer.rationale) throw new Error(
+        "This revision is above the 75th percentile of the band (or above it, or carries a large joining bonus) — it needs the deviation rationale.");
+
+    const nextVersionId = _uuid();
+    return await audit.performAsync({
+        org_id: request.org_id, actor_person_id: request.actor_person_id,
+        capability: "offer.approve",
+        audit: {action: "recruitment.offer_negotiated", object_type: "application",
+            object_ref: current.application_id,
+            detail: {from_version: current.version, to_version: current.version + 1,
+                re_routed: required_approvals != current.required_approvals}},
+
+        action: async exec => {
+            await exec.runCmd(
+                "UPDATE offer_version SET status='negotiating', superseded_by_version_id=? WHERE offer_version_id=?",
+                [nextVersionId, current.offer_version_id]);
+            const row = {offer_version_id: nextVersionId, org_id: request.org_id,
+                application_id: current.application_id, version: current.version + 1, status: "pending_approval",
+                fixed_amount: offer.fixed_amount, variable_amount: offer.variable_amount,
+                joining_bonus: offer.joining_bonus, start_date: offer.start_date, expires_on: offer.expires_on,
+                band_min: current.band_min, band_max: current.band_max, percentile, rationale: offer.rationale,
+                required_approvals, decline_reason: null, decline_detail: null, superseded_by_version_id: null,
+                letter_note: offer.letter_note, offered_by: request.actor_person_id, created_at: _now(),
+                sent_at: null, responded_at: null, withdrawn_at: null, withdrawn_reason: null, client_event_id: null};
+            await exec.runCmd(`INSERT INTO offer_version (offer_version_id, org_id, application_id, version,
+                    status, fixed_amount, variable_amount, joining_bonus, start_date, expires_on, band_min,
+                    band_max, percentile, rationale, required_approvals, decline_reason, decline_detail,
+                    superseded_by_version_id, letter_note, offered_by, created_at, sent_at, responded_at,
+                    withdrawn_at, withdrawn_reason, client_event_id)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                [row.offer_version_id, row.org_id, row.application_id, row.version, row.status,
+                    row.fixed_amount, row.variable_amount, row.joining_bonus, row.start_date, row.expires_on,
+                    row.band_min, row.band_max, row.percentile, row.rationale, row.required_approvals,
+                    row.decline_reason, row.decline_detail, row.superseded_by_version_id, row.letter_note,
+                    row.offered_by, row.created_at, row.sent_at, row.responded_at, row.withdrawn_at,
+                    row.withdrawn_reason, row.client_event_id]);
+            return row;
+        }});
+}
+
+/**
+ * Records how the offer ended. `withdrawn` is a legal event (the wireframe's
+ * own words) and always carries a reason; `declined` carries a taxonomy
+ * reason so the funnel can be analysed without free text standing in for
+ * data (K11).
+ *
+ * @param {object} request {org_id, actor_person_id, offer_version_id,
+ *      outcome: accepted|declined|expired|withdrawn, decline_reason,
+ *      decline_detail, reason}
+ */
+exports.recordOfferOutcomeAsync = async function(request) {
+    if (!OFFER_TERMINAL.includes(request.outcome)) throw new Error(
+        `outcome must be one of ${OFFER_TERMINAL.join(", ")}.`);
+    const offer = await _offerAsync(request.org_id, request.offer_version_id);
+    if (!offer) throw new Error(`No offer ${request.offer_version_id}.`);
+    if (OFFER_TERMINAL.includes(offer.status)) throw new Error(`This offer is already ${offer.status}.`);
+    if (request.outcome == "declined" && !DECLINE_REASONS.includes(request.decline_reason)) throw new Error(
+        `decline_reason must be one of ${DECLINE_REASONS.join(", ")}.`);
+    if (request.outcome == "withdrawn" && !request.reason) throw new Error(
+        "A withdrawal is a legal event and needs a reason.");
+
+    return await audit.performAsync({
+        org_id: request.org_id, actor_person_id: request.actor_person_id,
+        capability: "offer.approve", reason: request.outcome == "withdrawn" ? request.reason : undefined,
+        audit: {action: `recruitment.offer_${request.outcome}`, object_type: "application",
+            object_ref: offer.application_id, detail: {offer_version_id: offer.offer_version_id}},
+
+        action: async exec => {
+            await exec.runCmd(`UPDATE offer_version SET status=?, responded_at=?, decline_reason=?,
+                    decline_detail=?, withdrawn_at=?, withdrawn_reason=? WHERE offer_version_id=?`,
+                [request.outcome, ["accepted", "declined"].includes(request.outcome) ? _now() : null,
+                    request.outcome == "declined" ? request.decline_reason : null,
+                    request.outcome == "declined" ? (request.decline_detail || null) : null,
+                    request.outcome == "withdrawn" ? _now() : null,
+                    request.outcome == "withdrawn" ? request.reason : null, offer.offer_version_id]);
+            return {offer_version_id: offer.offer_version_id, status: request.outcome};
+        }});
+}
+
+/** Every version of an application's offer, current first — the K5 drawer's history list. */
+exports.offersForApplicationAsync = async function(org_id, actor_person_id, application_id) {
+    await _requireReadAsync(org_id, actor_person_id, "read an application's offer");
+    return {offers: await _offersWithApprovalsAsync(org_id, application_id, actor_person_id)};
+}
+
+/** Every offer version for an application, current first, each carrying who has approved it so far. */
+async function _offersWithApprovalsAsync(org_id, application_id, actor_person_id) {
+    const offers = await dblayer.getQueryOrThrow(
+        "SELECT * FROM offer_version WHERE org_id=? AND application_id=? ORDER BY version DESC",
+        [org_id, application_id]);
+    if (!offers.length) return offers;
+    const ids = offers.map(o => o.offer_version_id);
+    const approvals = await dblayer.getQueryOrThrow(
+        `SELECT offer_version_id, approver_person_id FROM offer_approval
+            WHERE org_id=? AND offer_version_id IN (${ids.map(_ => "?").join(",")})`, [org_id, ...ids]);
+    const names = await _namesAsync(org_id);
+    return offers.map(offer => {
+        const forThis = approvals.filter(a => a.offer_version_id == offer.offer_version_id);
+        return {...offer, approvals_received: forThis.length,
+            approved_by_actor: forThis.some(a => a.approver_person_id == actor_person_id),
+            approvers: forThis.map(a => names[a.approver_person_id] || a.approver_person_id)};
+    });
+}
+
+function _validateOfferTerms(request) {
+    if (!Number.isInteger(request.fixed_amount) || request.fixed_amount <= 0) throw new Error(
+        "fixed_amount must be a positive integer.");
+    if (request.variable_amount !== undefined && request.variable_amount !== null &&
+        (!Number.isInteger(request.variable_amount) || request.variable_amount < 0)) throw new Error(
+        "variable_amount, when set, must be a non-negative integer.");
+    if (request.joining_bonus !== undefined && request.joining_bonus !== null &&
+        (!Number.isInteger(request.joining_bonus) || request.joining_bonus < 0)) throw new Error(
+        "joining_bonus, when set, must be a non-negative integer.");
+    _assertISODate(request.start_date, "start_date");
+    _assertISODate(request.expires_on, "expires_on");
+    if (request.expires_on < _today()) throw new Error("expires_on cannot be in the past.");
+    return {fixed_amount: request.fixed_amount, variable_amount: request.variable_amount ?? null,
+        joining_bonus: request.joining_bonus ?? null, start_date: request.start_date,
+        expires_on: request.expires_on, rationale: request.rationale || null,
+        letter_note: request.letter_note || null};
+}
+
+async function _offerAsync(org_id, offer_version_id) {
+    const rows = await dblayer.getQueryOrThrow(
+        "SELECT * FROM offer_version WHERE org_id=? AND offer_version_id=?", [org_id, offer_version_id]);
+    return rows[0] || null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1105,3 +1444,5 @@ exports.REQ_TYPES = REQ_TYPES;
 exports.CANDIDATE_SOURCES = CANDIDATE_SOURCES;
 exports.PANEL_OUTCOMES = PANEL_OUTCOMES;
 exports.INTERVIEW_CATEGORY = INTERVIEW_CATEGORY;
+exports.DECLINE_REASONS = DECLINE_REASONS;
+exports.OFFER_TERMINAL = OFFER_TERMINAL;

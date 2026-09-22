@@ -68,6 +68,7 @@ exports.runTestsAsync = async function(argv) {
         await _testCapabilityRefusals(w, requisition);
         await _testIdempotency(w, requisition);
         await _testPanelScheduling(w, requisition);
+        await _testOffers(w, workflow);
     } catch (err) {
         failed++; LOG.console(`  FAIL  recruitment tests threw: ${err}\n`); LOG.error(`Recruitment tests threw: ${err.stack}`);
     } finally {
@@ -527,11 +528,188 @@ async function _testPanelScheduling(w, requisition) {
         JSON.stringify(record.panels.map(p => p.status)));
 }
 
+/**
+ * Walks a fresh candidate all the way to a completed pipeline: r1 -> r2a +
+ * r2b in parallel (both scored high so r3's condition, score < 3, never
+ * triggers) -> r4. Returns the application_id, ready for an offer.
+ */
+async function _walkToCompletion(w, requisitionId, fullName, email) {
+    const applied = await recruitment.applyAsync({org_id: w.org_id, actor_person_id: w.carol,
+        requisition_id: requisitionId, full_name: fullName, email});
+    const applicationId = applied.application_id;
+    await recruitment.recordTransitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: applicationId, round_id: "r1", kind: "advanced"});
+    await recruitment.submitScorecardAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: applicationId, round_id: "r2a", criteria_ratings: [{criterion_id: "c1", rating: 5}],
+        recommendation: "strong_yes", evidence: "Excellent communication and clarity throughout the conversation, with strong examples."});
+    await recruitment.recordTransitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: applicationId, round_id: "r2a", kind: "advanced"});
+    await recruitment.submitScorecardAsync({org_id: w.org_id, actor_person_id: w.dave,
+        application_id: applicationId, round_id: "r2b", criteria_ratings: [{criterion_id: "c1", rating: 5}],
+        recommendation: "strong_yes", evidence: "Solved every logic puzzle quickly and explained the reasoning clearly and confidently throughout."});
+    await recruitment.recordTransitionAsync({org_id: w.org_id, actor_person_id: w.dave,
+        application_id: applicationId, round_id: "r2b", kind: "advanced"});
+    // r3's condition (score < 3) is never satisfied by a 5, so it auto-skips
+    await recruitment.recordTransitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: applicationId, round_id: "r4", kind: "advanced"});
+    return applicationId;
+}
+
+/**
+ * K8: the approval route is computed from the offer's own attributes — a
+ * required-approval-count (1/2/3) standing in for the wireframe's named
+ * roles (hiring manager/HR/Finance), which this app's permission model
+ * doesn't have. Walks all three tiers, a negotiation that re-routes, and
+ * the decline/withdraw taxonomy.
+ */
+async function _testOffers(w, workflow) {
+    LOG.console("\n K8 — offers\n");
+    const requisition = await recruitment.raiseRequisitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+        title: "Backend Engineer", target_start: _inDays(90), workflow_code: workflow.workflow_code,
+        band_min: 100000, band_max: 200000});
+    await recruitment.approveRequisitionAsync({org_id: w.org_id, actor_person_id: w.dave,
+        requisition_id: requisition.requisition_id});
+
+    const midWalk = await recruitment.applyAsync({org_id: w.org_id, actor_person_id: w.carol,
+        requisition_id: requisition.requisition_id, full_name: "Not Done Yet",
+        email: `notdone.${w.stamp}@example.invalid`});
+    await _checkThrows("an offer cannot be built before the candidate has passed every round",
+        _ => recruitment.buildOfferAsync({org_id: w.org_id, actor_person_id: w.frank,
+            application_id: midWalk.application_id, fixed_amount: 150000, start_date: _inDays(60),
+            expires_on: _inDays(14)}));
+
+    // tier 1: within band, 50th percentile — one approval, no rationale needed
+    const app1 = await _walkToCompletion(w, requisition.requisition_id, "Offer Tier One",
+        `offer1.${w.stamp}@example.invalid`);
+    const offer1 = await recruitment.buildOfferAsync({org_id: w.org_id, actor_person_id: w.frank,
+        application_id: app1, fixed_amount: 150000, start_date: _inDays(60), expires_on: _inDays(14),
+        client_event_id: `offer1-${w.stamp}`});
+    _check("a within-band offer at the 50th percentile needs one approval and no rationale",
+        offer1.percentile == 50 && offer1.required_approvals == 1 && offer1.status == "pending_approval",
+        JSON.stringify(offer1));
+
+    const replay1 = await recruitment.buildOfferAsync({org_id: w.org_id, actor_person_id: w.frank,
+        application_id: app1, fixed_amount: 150000, start_date: _inDays(60), expires_on: _inDays(14),
+        client_event_id: `offer1-${w.stamp}`});
+    _check("a replayed build returns the stored offer, not a duplicate",
+        replay1.offer_version_id == offer1.offer_version_id);
+
+    await _checkThrows("a second, independent offer on the same application is refused",
+        _ => recruitment.buildOfferAsync({org_id: w.org_id, actor_person_id: w.frank,
+            application_id: app1, fixed_amount: 160000, start_date: _inDays(60), expires_on: _inDays(14)}));
+    await _checkThrows("an employee cannot build an offer",
+        _ => recruitment.buildOfferAsync({org_id: w.org_id, actor_person_id: w.alice,
+            application_id: app1, fixed_amount: 150000, start_date: _inDays(60), expires_on: _inDays(14)}));
+    await _checkThrows("the builder cannot approve their own offer (sod.self_approval)",
+        _ => recruitment.approveOfferAsync({org_id: w.org_id, actor_person_id: w.frank,
+            offer_version_id: offer1.offer_version_id}));
+
+    const approval1 = await recruitment.approveOfferAsync({org_id: w.org_id, actor_person_id: w.carol,
+        offer_version_id: offer1.offer_version_id});
+    _check("one approval is enough at required_approvals 1, and the offer approves",
+        approval1.approved === true && approval1.offer.status == "approved", JSON.stringify(approval1));
+    await _checkThrows("the same person cannot approve twice",
+        _ => recruitment.approveOfferAsync({org_id: w.org_id, actor_person_id: w.carol,
+            offer_version_id: offer1.offer_version_id}));
+
+    const sent1 = await recruitment.sendOfferAsync({org_id: w.org_id, actor_person_id: w.frank,
+        offer_version_id: offer1.offer_version_id});
+    _check("approved moves to sent", sent1.status == "sent");
+    await recruitment.recordOfferViewedAsync({org_id: w.org_id, actor_person_id: w.frank,
+        offer_version_id: offer1.offer_version_id});
+
+    await _checkThrows("declining without a taxonomy reason is refused",
+        _ => recruitment.recordOfferOutcomeAsync({org_id: w.org_id, actor_person_id: w.carol,
+            offer_version_id: offer1.offer_version_id, outcome: "declined"}));
+    const declined = await recruitment.recordOfferOutcomeAsync({org_id: w.org_id, actor_person_id: w.carol,
+        offer_version_id: offer1.offer_version_id, outcome: "declined", decline_reason: "compensation"});
+    _check("decline records a taxonomy reason, feeding K11 rather than free text standing in for data",
+        declined.status == "declined");
+    const declinedRow = (await recruitment.offersForApplicationAsync(w.org_id, w.carol, app1)).offers[0];
+    _check("the decline reason is stored on the record", declinedRow.decline_reason == "compensation");
+
+    // tier 2: above the 75th percentile — needs a rationale and two distinct approvals
+    const app2 = await _walkToCompletion(w, requisition.requisition_id, "Offer Tier Two",
+        `offer2.${w.stamp}@example.invalid`);
+    await _checkThrows("an offer above the 75th percentile needs a deviation rationale",
+        _ => recruitment.buildOfferAsync({org_id: w.org_id, actor_person_id: w.frank,
+            application_id: app2, fixed_amount: 195000, start_date: _inDays(60), expires_on: _inDays(14)}));
+    const offer2 = await recruitment.buildOfferAsync({org_id: w.org_id, actor_person_id: w.frank,
+        application_id: app2, fixed_amount: 195000, start_date: _inDays(60), expires_on: _inDays(14),
+        rationale: "Competing offer verified; the candidate's systems-design depth is scarce on this team."});
+    _check("95th percentile needs two approvals", offer2.percentile == 95 && offer2.required_approvals == 2,
+        JSON.stringify(offer2));
+
+    const step1 = await recruitment.approveOfferAsync({org_id: w.org_id, actor_person_id: w.carol,
+        offer_version_id: offer2.offer_version_id});
+    _check("one of two approvals leaves the offer pending",
+        step1.approved === false && step1.offer.status == "pending_approval", JSON.stringify(step1));
+    const step2 = await recruitment.approveOfferAsync({org_id: w.org_id, actor_person_id: w.dave,
+        offer_version_id: offer2.offer_version_id});
+    _check("the second distinct approval completes the route",
+        step2.approved === true && step2.offer.status == "approved", JSON.stringify(step2));
+
+    await recruitment.sendOfferAsync({org_id: w.org_id, actor_person_id: w.frank,
+        offer_version_id: offer2.offer_version_id});
+    await recruitment.recordOfferViewedAsync({org_id: w.org_id, actor_person_id: w.frank,
+        offer_version_id: offer2.offer_version_id});
+
+    // negotiate: the revision crosses into "above band" and re-routes to three approvals
+    const negotiated = await recruitment.negotiateOfferAsync({org_id: w.org_id, actor_person_id: w.frank,
+        offer_version_id: offer2.offer_version_id, fixed_amount: 250000, start_date: _inDays(60),
+        expires_on: _inDays(14), rationale: "Candidate has a competing offer above this band entirely."});
+    _check("a revision that crosses into above-band re-routes to three approvals",
+        negotiated.version == 2 && negotiated.required_approvals == 3, JSON.stringify(negotiated));
+
+    const history = await recruitment.offersForApplicationAsync(w.org_id, w.carol, app2);
+    const v1 = history.offers.find(o => o.version == 1);
+    _check("version 1 is retained and points at the version that superseded it",
+        v1.status == "negotiating" && v1.superseded_by_version_id == negotiated.offer_version_id, JSON.stringify(v1));
+
+    for (const approver of [w.carol, w.dave, w.erin])
+        await recruitment.approveOfferAsync({org_id: w.org_id, actor_person_id: approver,
+            offer_version_id: negotiated.offer_version_id});
+    const approvedV2 = (await recruitment.offersForApplicationAsync(w.org_id, w.carol, app2)).offers
+        .find(o => o.offer_version_id == negotiated.offer_version_id);
+    _check("three distinct approvals complete an above-band route", approvedV2.status == "approved");
+
+    await recruitment.sendOfferAsync({org_id: w.org_id, actor_person_id: w.frank,
+        offer_version_id: negotiated.offer_version_id});
+    await _checkThrows("withdrawing needs a reason — it is a legal event",
+        _ => recruitment.recordOfferOutcomeAsync({org_id: w.org_id, actor_person_id: w.carol,
+            offer_version_id: negotiated.offer_version_id, outcome: "withdrawn"}));
+    const withdrawn = await recruitment.recordOfferOutcomeAsync({org_id: w.org_id, actor_person_id: w.carol,
+        offer_version_id: negotiated.offer_version_id, outcome: "withdrawn",
+        reason: "Role scope changed after budget review."});
+    _check("withdrawal is recorded with its reason", withdrawn.status == "withdrawn");
+
+    // tier 3, direct: above band from the very first version, not only reachable via negotiation
+    const app3 = await _walkToCompletion(w, requisition.requisition_id, "Offer Tier Three",
+        `offer3.${w.stamp}@example.invalid`);
+    const offer3 = await recruitment.buildOfferAsync({org_id: w.org_id, actor_person_id: w.frank,
+        application_id: app3, fixed_amount: 260000, start_date: _inDays(60), expires_on: _inDays(14),
+        rationale: "Above band — exceptional prior experience shipping this exact system at scale."});
+    _check("an offer above the band computes three required approvals directly",
+        offer3.required_approvals == 3, JSON.stringify(offer3));
+
+    // a large joining bonus alone crosses the tier, even within band
+    const app4 = await _walkToCompletion(w, requisition.requisition_id, "Offer Tier Bonus",
+        `offer4.${w.stamp}@example.invalid`);
+    const offer4 = await recruitment.buildOfferAsync({org_id: w.org_id, actor_person_id: w.frank,
+        application_id: app4, fixed_amount: 120000, joining_bonus: 20000, start_date: _inDays(60),
+        expires_on: _inDays(14), rationale: "Relocation is time-critical; the bonus offsets the notice-period gap."});
+    _check("a joining bonus over 10% of the fixed amount alone requires two approvals, even within band",
+        offer4.percentile == 20 && offer4.required_approvals == 2, JSON.stringify(offer4));
+}
+
 async function _buildWorld() {
     const stamp = Date.now();
     const org = await spine.createOrgAsync({name: `Recruitment test ${stamp}`, home_jurisdiction: "IN"});
     const people = {};
-    for (const who of ["alice", "bob", "carol", "dave"])
+    // erin and frank exist for K8: a required_approvals of 2 or 3 needs that
+    // many DISTINCT offer.approve holders besides whoever built the offer,
+    // and carol+dave alone are not enough to cover the above-band tier.
+    for (const who of ["alice", "bob", "carol", "dave", "erin", "frank"])
         people[who] = await spine.createPersonAsync(
             {display_name: who, email: `${who}.${stamp}@example.invalid`});
     for (const who of Object.keys(people)) await spine.recordEmploymentAsync({org_id: org.org_id,
@@ -540,7 +718,8 @@ async function _buildWorld() {
 
     await permissions.ensureBuiltinRolesAsync(org.org_id);
     const from = {granted_by: "system", valid_from: "2026-01-01"};
-    for (const [who, role] of [["alice", "employee"], ["bob", "lead"], ["carol", "hr"], ["dave", "admin"]])
+    for (const [who, role] of [["alice", "employee"], ["bob", "lead"], ["carol", "hr"], ["dave", "admin"],
+        ["erin", "hr"], ["frank", "admin"]])
         await permissions.assignRoleAsync(org.org_id, people[who].person_id, role, from);
 
     return {org_id: org.org_id, stamp, ...Object.fromEntries(
@@ -549,8 +728,9 @@ async function _buildWorld() {
 
 async function _cleanup(w) {
     if (!w?.org_id) return;
-    for (const table of ["panel_assignment", "scorecard", "stage_transition", "application", "candidate",
-        "requisition", "workflow_pointer", "workflow_version", "time_entry_event", "working_window", "leave_request"])
+    for (const table of ["offer_approval", "offer_version", "panel_assignment", "scorecard", "stage_transition",
+        "application", "candidate", "requisition", "workflow_pointer", "workflow_version", "time_entry_event",
+        "working_window", "leave_request"])
         await dblayer.runCmdBestEffortAsync(`DELETE FROM ${table} WHERE org_id=?`, [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM audit_event WHERE org_id=?", [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM role_capability WHERE org_id=?", [w.org_id]);
@@ -558,6 +738,6 @@ async function _cleanup(w) {
     await dblayer.runCmdBestEffortAsync("DELETE FROM capability_grant WHERE org_id=?", [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM employment WHERE org_id=?", [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM org WHERE org_id=?", [w.org_id]);
-    for (const who of ["alice", "bob", "carol", "dave"])
+    for (const who of ["alice", "bob", "carol", "dave", "erin", "frank"])
         if (w[who]) await dblayer.runCmdBestEffortAsync("DELETE FROM person WHERE person_id=?", [w[who]]);
 }

@@ -37,9 +37,10 @@ export async function render(root) {
         canPublishWorkflow: caps.includes("workflow.publish"), canCreate: caps.includes("requisition.create"),
         canApprove: caps.includes("requisition.approve"), canRecord: caps.includes("stage_transition.record"),
         canScore: caps.includes("scorecard.submit"), canSchedule: caps.includes("panel.schedule"),
+        canOffer: caps.includes("offer.approve"),
         composerOpen: false, workflowDraft: null, requisitionDraft: null,
         selectedRequisitionId: null, selectedApplicationId: null, addCandidateOpen: false,
-        reschedulingPanelId: null, roster: null};
+        reschedulingPanelId: null, roster: null, offerComposerOpen: false};
     await _view();
 }
 
@@ -130,7 +131,7 @@ const _requisitionRow = requisition => `
 
 function _blankRequisitionDraft() {
     return {title: "", team: "", positions: 1, req_type: "new", location: "", employment_type: "", band: "",
-        target_start: "", workflow_code: ""};
+        band_min: "", band_max: "", target_start: "", workflow_code: ""};
 }
 
 function _requisitionComposerHtml(draft, response, workflows) {
@@ -152,6 +153,11 @@ function _requisitionComposerHtml(draft, response, workflows) {
             <input class="inp" id="rq-employment" placeholder="Employment type" style="width:170px" value="${states.esc(draft.employment_type)}">
             <input class="inp" id="rq-band" placeholder="Band" style="width:110px" value="${states.esc(draft.band)}">
             <input class="inp" id="rq-start" type="date" style="width:160px" value="${draft.target_start}">
+        </div>
+        <div class="row wrap">
+            <input class="inp" id="rq-band-min" type="number" min="0" placeholder="Band minimum" style="width:150px" value="${states.esc(draft.band_min)}">
+            <input class="inp" id="rq-band-max" type="number" min="0" placeholder="Band maximum" style="width:150px" value="${states.esc(draft.band_max)}">
+            <span class="sm t3">Optional — an offer against this requisition can only compute its band position (K8) when both are set.</span>
         </div>
         <div class="row">
             <select class="inp grow" id="rq-workflow">
@@ -175,13 +181,18 @@ function _wireRequisitionComposer(root, response, workflows) {
         d.location = root.querySelector("#rq-location").value;
         d.employment_type = root.querySelector("#rq-employment").value;
         d.band = root.querySelector("#rq-band").value;
+        d.band_min = root.querySelector("#rq-band-min").value;
+        d.band_max = root.querySelector("#rq-band-max").value;
         d.target_start = root.querySelector("#rq-start").value;
         d.workflow_code = root.querySelector("#rq-workflow").value;
         if (!d.title.trim()) {states.toast({message: "A requisition needs a title."}); return;}
         if (!d.workflow_code) {states.toast({message: "Pick a workflow."}); return;}
         if (!d.target_start) {states.toast({message: "A requisition needs a target start date."}); return;}
+        if ((d.band_min || d.band_max) && !(d.band_min && d.band_max)) {
+            states.toast({message: "Set both a band minimum and maximum, or neither."}); return;}
 
-        const result = await _rest("raise_requisition", d);
+        const result = await _rest("raise_requisition", {...d,
+            band_min: d.band_min ? Number(d.band_min) : undefined, band_max: d.band_max ? Number(d.band_max) : undefined});
         if (!result) return;
         states.toast({message: "Requisition raised — pending approval."});
         state.requisitionDraft = _blankRequisitionDraft(); state.composerOpen = false;
@@ -489,7 +500,7 @@ function _renderPipeline(root, board, approved, load) {
     for (const card of root.querySelectorAll("[data-card]"))
         card.addEventListener("click", _ => {
             state.selectedApplicationId = card.getAttribute("data-card"); state.reschedulingPanelId = null;
-            _renderDrawer(root);
+            state.offerComposerOpen = false; _renderDrawer(root);
         });
 
     if (state.selectedApplicationId) _renderDrawer(root);
@@ -579,6 +590,7 @@ async function _renderDrawer(root) {
         </div>
         ${record.terminal ? `<div class="tr-note">${record.terminal.kind == "completed" ?
             "Completed the whole pipeline." : `Rejected at ${states.esc(record.workflow.find(r => r.id == record.terminal.round_id)?.title || record.terminal.round_id)} — ${states.esc(record.terminal.reason)}`}</div>` : ""}
+        ${_offerSectionHtml(record)}
 
         ${legal.current_rounds.map(round => _currentRoundHtml(round, record)).join("")}
 
@@ -598,7 +610,8 @@ async function _renderDrawer(root) {
     </div>`;
 
     holder.querySelector("[data-rc=\"close-drawer\"]").addEventListener("click", _ => {
-        state.selectedApplicationId = null; state.reschedulingPanelId = null; holder.innerHTML = "";});
+        state.selectedApplicationId = null; state.reschedulingPanelId = null;
+        state.offerComposerOpen = false; holder.innerHTML = "";});
     holder.querySelector("[data-rc=\"save-availability\"]")?.addEventListener("click", async _ => {
         const result = await _rest("update_candidate", {candidate_id: candidate.candidate_id,
             timezone: holder.querySelector("[data-rc-tz]").value.trim() || undefined,
@@ -608,6 +621,7 @@ async function _renderDrawer(root) {
     });
 
     for (const roundBlock of holder.querySelectorAll("[data-round-actions]")) _wireCurrentRound(roundBlock, root, record);
+    _wireOfferSection(holder, root, record);
 }
 
 function _currentRoundHtml(round, record) {
@@ -851,6 +865,179 @@ function _wireCurrentRound(block, root, record) {
         state.reschedulingPanelId = null; await _pipeline(root);
     });
 }
+
+// -- K8: the offer, once the candidate has passed every round --
+
+function _offerSectionHtml(record) {
+    if (record.terminal?.kind != "completed") return "";
+    const offers = record.offers || [];
+    const current = offers[0] || null;
+    const history = offers.slice(1);
+    return `<div class="up t3">Offer</div>
+        <div class="tr-panel" data-offer-section>
+            ${current ? _offerCardHtml(current) : `<div class="sm t3">No offer built yet.</div>`}
+            ${state.canOffer ? _offerActionsHtml(current, record.recommendations, record.decline_reasons) : ""}
+        </div>
+        ${state.offerComposerOpen ? _offerComposerHtml(current) : ""}
+        ${history.length ? `<div class="tr-panel">
+            <div class="up t3">Earlier versions</div>
+            ${history.map(o => `<div class="sm t3">v${o.version} · ${states.esc(o.status.replace(/_/g, " "))} ·
+                ${_money(o.fixed_amount)}${o.decline_reason ? ` · ${states.esc(o.decline_reason.replace(/_/g, " "))}` : ""}</div>`).join("")}
+        </div>` : ""}`;
+}
+
+function _offerCardHtml(offer) {
+    const pct = offer.percentile;
+    return `<div class="sm"><b>v${offer.version} · ${states.esc(offer.status.replace(/_/g, " "))}</b> ·
+            ${_money(offer.fixed_amount)}${offer.variable_amount ? ` + ${_money(offer.variable_amount)} variable` : ""}${
+            offer.joining_bonus ? ` + ${_money(offer.joining_bonus)} joining bonus` : ""}</div>
+        <div class="sm t3">Start ${states.esc(offer.start_date)} · expires ${states.esc(offer.expires_on)}</div>
+        ${pct != null ? `<div style="position:relative;height:8px;background:var(--raise);border-radius:4px;margin:6px 0">
+                <span style="position:absolute;left:${Math.min(100, Math.max(0, pct))}%;top:-3px;width:2px;height:14px;background:var(--brand)"></span>
+            </div>
+            <div class="sm t3">${pct}th percentile of the band (${_money(offer.band_min)}–${_money(offer.band_max)})</div>` :
+            `<div class="sm t3">No band declared on the requisition — percentile not computed.</div>`}
+        ${offer.rationale ? `<div class="sm t3">Rationale: ${states.esc(offer.rationale)}</div>` : ""}
+        ${offer.status == "pending_approval" ? `<div class="sm t3">${offer.approvals_received} of ${
+            offer.required_approvals} approval${offer.required_approvals == 1 ? "" : "s"}${
+            offer.approvers?.length ? ` — ${offer.approvers.map(name => states.esc(name)).join(", ")}` : ""}${
+            offer.approved_by_actor ? " · you've approved this" : ""}</div>` : ""}
+        ${offer.status == "declined" && offer.decline_reason ? `<div class="sm t3">Declined — ${
+            states.esc(offer.decline_reason.replace(/_/g, " "))}${
+            offer.decline_detail ? `: ${states.esc(offer.decline_detail)}` : ""}</div>` : ""}
+        ${offer.status == "withdrawn" && offer.withdrawn_reason ? `<div class="sm t3">Withdrawn — ${
+            states.esc(offer.withdrawn_reason)}</div>` : ""}`;
+}
+
+function _offerActionsHtml(current, recommendations, declineReasons) {
+    if (!current) return `<div class="row wrap"><button class="btn pri" data-rc="offer-build">Build offer</button></div>`;
+    const buttons = [];
+    if (current.status == "pending_approval") buttons.push(current.approved_by_actor ?
+        `<button class="btn" disabled title="You've already approved this offer">Approved</button>` :
+        `<button class="btn pri" data-rc="offer-approve">Approve</button>`);
+    if (current.status == "approved") buttons.push(`<button class="btn pri" data-rc="offer-send">Send</button>`);
+    if (current.status == "sent") buttons.push(`<button class="btn" data-rc="offer-viewed">Mark viewed</button>`);
+    if (["sent", "viewed"].includes(current.status)) {
+        buttons.push(`<button class="btn" data-rc="offer-negotiate">Negotiate</button>`,
+            `<button class="btn pri" data-rc="offer-accept">Accept</button>`,
+            `<select class="inp" data-offer-decline-reason style="width:160px"><option value="">decline reason…</option>${
+                (declineReasons || []).map(reason => `<option value="${reason}">${states.esc(reason.replace(/_/g, " "))}</option>`).join("")}</select>`,
+            `<button class="btn danger" data-rc="offer-decline">Decline</button>`,
+            `<input class="inp" data-offer-withdraw-reason placeholder="withdraw reason" style="width:160px">`,
+            `<button class="btn danger" data-rc="offer-withdraw">Withdraw</button>`);
+    }
+    return buttons.length ? `<div class="row wrap">${buttons.join("")}</div>` : "";
+}
+
+function _offerComposerHtml(negotiating) {
+    return `<div class="build-q">
+        <div class="sm"><b>${negotiating ? `Negotiate — revises v${negotiating.version}` : "Build offer"}</b></div>
+        <div class="row wrap">
+            <input class="inp" type="number" min="1" data-of-fixed placeholder="Fixed amount" style="width:150px"
+                value="${negotiating ? negotiating.fixed_amount : ""}">
+            <input class="inp" type="number" min="0" data-of-variable placeholder="Variable (optional)" style="width:150px"
+                value="${negotiating?.variable_amount ?? ""}">
+            <input class="inp" type="number" min="0" data-of-bonus placeholder="Joining bonus (optional)" style="width:170px"
+                value="${negotiating?.joining_bonus ?? ""}">
+        </div>
+        <div class="row wrap">
+            <input class="inp" type="date" data-of-start style="width:160px" value="${negotiating?.start_date || _tomorrow()}">
+            <input class="inp" type="date" data-of-expires style="width:160px" value="${negotiating?.expires_on || ""}">
+        </div>
+        <input class="inp grow" data-of-rationale placeholder="Deviation rationale — required above the 75th percentile or above the band"
+            value="${states.esc(negotiating?.rationale || "")}">
+        <textarea class="inp" data-of-letter placeholder="Letter note (optional)" style="min-height:44px">${
+            states.esc(negotiating?.letter_note || "")}</textarea>
+        <div class="row wrap">
+            <button class="btn" data-rc="offer-composer-cancel">Cancel</button>
+            <button class="btn pri push" data-rc="offer-submit">${negotiating ? "Send revision" : "Build offer"}</button>
+        </div>
+    </div>`;
+}
+
+function _wireOfferSection(holder, root, record) {
+    const section = holder.querySelector("[data-offer-section]");
+    if (!section) return;
+    const current = (record.offers || [])[0] || null;
+
+    holder.querySelector("[data-rc=\"offer-build\"]")?.addEventListener("click", _ => {
+        state.offerComposerOpen = true; _renderDrawer(root);});
+    holder.querySelector("[data-rc=\"offer-negotiate\"]")?.addEventListener("click", _ => {
+        state.offerComposerOpen = true; _renderDrawer(root);});
+    holder.querySelector("[data-rc=\"offer-composer-cancel\"]")?.addEventListener("click", _ => {
+        state.offerComposerOpen = false; _renderDrawer(root);});
+
+    holder.querySelector("[data-rc=\"offer-approve\"]")?.addEventListener("click", async _ => {
+        const result = await _rest("approve_offer", {offer_version_id: current.offer_version_id});
+        if (!result) return;
+        states.toast({message: result.approved ? "Approved — the offer is now fully approved." :
+            `Approved — ${result.approvals_received} of ${result.required_approvals} so far.`});
+        await _pipeline(root);
+    });
+    holder.querySelector("[data-rc=\"offer-send\"]")?.addEventListener("click", async _ => {
+        const result = await _rest("send_offer", {offer_version_id: current.offer_version_id});
+        if (!result) return;
+        states.toast({message: "Offer sent."}); await _pipeline(root);
+    });
+    holder.querySelector("[data-rc=\"offer-viewed\"]")?.addEventListener("click", async _ => {
+        const result = await _rest("offer_viewed", {offer_version_id: current.offer_version_id});
+        if (!result) return;
+        states.toast({message: "Marked as viewed."}); await _pipeline(root);
+    });
+    holder.querySelector("[data-rc=\"offer-accept\"]")?.addEventListener("click", async _ => {
+        const confirmed = await states.confirmAction({title: "Accept this offer?",
+            body: "This is the candidate's final answer, recorded on their behalf.", confirmLabel: "Accept"});
+        if (!confirmed) return;
+        const result = await _rest("offer_outcome", {offer_version_id: current.offer_version_id, outcome: "accepted"});
+        if (!result) return;
+        states.toast({message: "Offer accepted."}); await _pipeline(root);
+    });
+    holder.querySelector("[data-rc=\"offer-decline\"]")?.addEventListener("click", async _ => {
+        const decline_reason = holder.querySelector("[data-offer-decline-reason]").value;
+        if (!decline_reason) {states.toast({message: "Pick why the offer was declined."}); return;}
+        const result = await _rest("offer_outcome", {offer_version_id: current.offer_version_id,
+            outcome: "declined", decline_reason});
+        if (!result) return;
+        states.toast({message: "Recorded as declined."}); await _pipeline(root);
+    });
+    holder.querySelector("[data-rc=\"offer-withdraw\"]")?.addEventListener("click", async _ => {
+        const reason = holder.querySelector("[data-offer-withdraw-reason]").value.trim();
+        if (!reason) {states.toast({message: "A withdrawal needs a reason — it's a legal event."}); return;}
+        const confirmed = await states.confirmDestructive({title: "Withdraw this offer?",
+            body: "This is recorded as a legal event and cannot be undone.", confirmLabel: "Withdraw"});
+        if (!confirmed) return;
+        const result = await _rest("offer_outcome", {offer_version_id: current.offer_version_id,
+            outcome: "withdrawn", reason});
+        if (!result) return;
+        states.toast({message: "Offer withdrawn."}); await _pipeline(root);
+    });
+
+    holder.querySelector("[data-rc=\"offer-submit\"]")?.addEventListener("click", async _ => {
+        const fixed_amount = Number(holder.querySelector("[data-of-fixed]").value);
+        const start_date = holder.querySelector("[data-of-start]").value;
+        const expires_on = holder.querySelector("[data-of-expires]").value;
+        if (!(fixed_amount > 0)) {states.toast({message: "Enter a fixed amount."}); return;}
+        if (!start_date || !expires_on) {states.toast({message: "Set both a start date and an expiry."}); return;}
+        const payload = {fixed_amount, start_date, expires_on,
+            variable_amount: holder.querySelector("[data-of-variable]").value ?
+                Number(holder.querySelector("[data-of-variable]").value) : undefined,
+            joining_bonus: holder.querySelector("[data-of-bonus]").value ?
+                Number(holder.querySelector("[data-of-bonus]").value) : undefined,
+            rationale: holder.querySelector("[data-of-rationale]").value.trim() || undefined,
+            letter_note: holder.querySelector("[data-of-letter]").value.trim() || undefined};
+
+        const result = current && ["sent", "viewed"].includes(current.status) ?
+            await _rest("negotiate_offer", {offer_version_id: current.offer_version_id, ...payload}) :
+            await _rest("build_offer", {application_id: state.selectedApplicationId,
+                client_event_id: crypto.randomUUID(), ...payload});
+        if (!result) return;
+        states.toast({message: `Offer v${result.version} — ${result.required_approvals} approval${
+            result.required_approvals == 1 ? "" : "s"} needed.`});
+        state.offerComposerOpen = false; await _pipeline(root);
+    });
+}
+
+const _money = amount => amount == null ? "—" : Number(amount).toLocaleString();
 
 // ---------------------------------------------------------------------------
 // time, read in a zone — the same noon probe windows.js uses, so the strip and

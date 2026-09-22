@@ -122,6 +122,8 @@ const CATALOGUE = Object.freeze({
         scopes: [SCOPES.TEAM, SCOPES.ORG], always_audited: true},
     "scorecard.submit": {label: "Submit an interview scorecard", scopes: [SCOPES.TEAM, SCOPES.ORG], always_audited: true},
     "panel.schedule": {label: "Schedule an interview panel and record how it went", scopes: [SCOPES.ORG],
+        always_audited: true},
+    "offer.approve": {label: "Approve, send and record the outcome of an offer", scopes: [SCOPES.ORG],
         always_audited: true}
 });
 
@@ -154,6 +156,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["survey.publish", SCOPES.ORG],
         ["workflow.publish", SCOPES.ORG], ["requisition.approve", SCOPES.ORG], ["requisition.create", SCOPES.ORG],
         ["stage_transition.record", SCOPES.ORG], ["scorecard.submit", SCOPES.ORG], ["panel.schedule", SCOPES.ORG],
+        ["offer.approve", SCOPES.ORG],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     admin: {label: "Org admin", capabilities: [
         ["time.read_own", SCOPES.SELF], ["leave.request", SCOPES.SELF], ["role.assign", SCOPES.ORG],
@@ -165,7 +168,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["training.publish", SCOPES.ORG], ["survey.publish", SCOPES.ORG],
         ["workflow.publish", SCOPES.ORG], ["requisition.approve", SCOPES.ORG], ["requisition.create", SCOPES.ORG],
         ["candidate.read", SCOPES.ORG], ["stage_transition.record", SCOPES.ORG], ["scorecard.submit", SCOPES.ORG],
-        ["panel.schedule", SCOPES.ORG]]},
+        ["panel.schedule", SCOPES.ORG], ["offer.approve", SCOPES.ORG]]},
     guest: {label: "Guest", capabilities: [["audit.read_own", SCOPES.SELF]]}
 });
 
@@ -178,9 +181,9 @@ const BUILTIN_ROLES = Object.freeze({
 const SOD_RULES = Object.freeze({
     "sod.self_approval": {
         label: "Self-approval",
-        applies_to: ["timesheet.approve", "leave.approve", "requisition.approve"],
+        applies_to: ["timesheet.approve", "leave.approve", "requisition.approve", "offer.approve"],
         blocks: async ctx => ctx.actor_person_id && (ctx.actor_person_id == ctx.subject_person_id),
-        explain: "You cannot approve your own timesheet, leave or requisition.",
+        explain: "You cannot approve your own timesheet, leave, requisition or offer.",
         who_can: "Your approver on the employment record in force, or anyone holding this capability at a wider scope."
     },
     "sod.self_role_change": {
