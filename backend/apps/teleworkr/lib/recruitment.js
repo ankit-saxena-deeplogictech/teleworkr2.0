@@ -27,10 +27,10 @@
  *   - Scorecards submit directly; no draft/autosave state (K7's "draft"
  *     state is deferred).
  *   - No re-entry / reuse-results-for-reapplication (K1's `reuse_results_for`).
- *   - Deferred entirely to later phases: offers (K8), the candidate portal
- *     (K9 — needs a magic-link/no-login surface nothing else in this app
- *     uses), hire→onboarding handoff (K10 — depends on D5/B3/G1, none of
- *     which exist yet), analytics (K11), retention & fairness runs (K12).
+ *   - Deferred entirely to later phases: the candidate portal (K9 — needs a
+ *     magic-link/no-login surface nothing else in this app uses),
+ *     hire→onboarding handoff (K10 — depends on D5/B3/G1, none of which
+ *     exist yet), retention & fairness runs (K12).
  *
  * K6 (panel scheduling) adds no availability model of its own — the panel
  * is checked against the E3 board with J6 leave already wired in
@@ -42,6 +42,16 @@
  * round's `owner_role` tag, and interviewer load reported as counts and
  * hours with no "overloaded" threshold — the wireframe illustrates one but
  * never states a rule, so none is invented here.
+ *
+ * K11 (analytics) is pure reporting over everything above — no new
+ * capability, no new table. `round.sla_days` (declared since K1's own
+ * migration, captured by the K2 designer, never read until now) drives
+ * per-round SLA adherence; the wireframe's "feedback within 2 days /
+ * scheduling within 3 days" split isn't reproduced as two org-wide buckets
+ * since nothing tags which of those a round is — adherence is reported per
+ * round against its own declared `sla_days` instead. Funnel "non-completion
+ * vs failure" is the three states the data actually supports (passed /
+ * rejected / still open), not a guess at who ghosted from free-text reasons.
  *
  * (C) 2026 TekMonks. All rights reserved.
  * License: See the enclosed LICENSE file.
@@ -831,8 +841,19 @@ exports.interviewerLoadAsync = async function(org_id, actor_person_id, from_date
         if (panel.status == "completed") row.completed++;
         byPerson.set(person_id, row);
     }
-    return {from_date, to_date, interviewers: [...byPerson.values()]
-        .sort((a, b) => String(a.name).localeCompare(String(b.name)))};
+
+    // K11: the shape of the load, never a leaderboard — the list below stays
+    // name-sorted; these two numbers are the only ranking-derived output,
+    // and they characterise concentration, not any one person.
+    const interviewers = [...byPerson.values()];
+    const totalSeconds = interviewers.reduce((sum, row) => sum + row.seconds, 0);
+    const concentration_headcount = interviewers.length ? Math.ceil(interviewers.length/4) : 0;
+    const topSeconds = [...interviewers].sort((a, b) => b.seconds - a.seconds)
+        .slice(0, concentration_headcount).reduce((sum, row) => sum + row.seconds, 0);
+    return {from_date, to_date,
+        interviewers: interviewers.sort((a, b) => String(a.name).localeCompare(String(b.name))),
+        concentration_headcount,
+        concentration_pct: totalSeconds ? Math.round((topSeconds/totalSeconds)*100) : null};
 }
 
 // ---------------------------------------------------------------------------
@@ -1164,6 +1185,166 @@ async function _offerAsync(org_id, offer_version_id) {
 }
 
 // ---------------------------------------------------------------------------
+// K11 — recruitment analytics & SLA: aggregates that lead to a decision.
+//
+// Pure reporting over data K1-K8 already write — no new capability, no new
+// table, no write path. The wireframe is explicit about what this omits:
+// per-interviewer pass rates, recruiter league tables, candidate quality
+// scores. "Each of these changes behaviour faster than it measures it."
+// `interviewerLoadAsync` above already carries K11's other panel — the
+// distribution never a ranking.
+// ---------------------------------------------------------------------------
+
+/**
+ * Pass-through funnel, time-in-stage and SLA adherence for one workflow
+ * template, aggregated across every requisition/version that has used
+ * `workflow_code` — a round graph only means something within one template.
+ * Rounds are labelled from the CURRENT published version; an application
+ * pinned to an older, since-edited version is folded in by matching
+ * round_id — a round renamed or removed since won't line up perfectly,
+ * the honest cost of reporting against a definition that keeps moving.
+ *
+ * @param {string} org_id The org
+ * @param {string} actor_person_id The caller
+ * @param {object} request {workflow_code, from_date, to_date}
+ * @returns {object} {workflow_code, from_date, to_date, applied, funnel,
+ *      time_in_stage, median_time_to_hire_days}
+ */
+exports.recruitmentFunnelAsync = async function(org_id, actor_person_id, request) {
+    await _requireReadAsync(org_id, actor_person_id, "read recruitment analytics");
+    if (!request?.workflow_code) throw new Error("workflow_code is required.");
+    const {from_date, to_date} = _defaultRange(request.from_date, request.to_date);
+    const from = Date.parse(`${from_date}T00:00:00Z`)/1000, to = Date.parse(`${to_date}T00:00:00Z`)/1000 + 86400;
+
+    const pointer = await dblayer.getQueryOrThrow(
+        "SELECT * FROM workflow_pointer WHERE org_id=? AND workflow_code=?", [org_id, request.workflow_code]);
+    if (!pointer.length) throw new Error(`No workflow ${request.workflow_code}.`);
+    const current = await _versionByIdAsync(org_id, pointer[0].workflow_version_id);
+    const displayRounds = JSON.parse(current.rounds).sort((a, b) => a.sequence - b.sequence);
+
+    const applications = await dblayer.getQueryOrThrow(
+        `SELECT a.* FROM application a JOIN requisition r ON r.requisition_id = a.requisition_id
+            WHERE a.org_id=? AND r.workflow_code=? AND a.applied_at >= ? AND a.applied_at < ?`,
+        [org_id, request.workflow_code, from, to]);
+
+    const reachedByRound = new Map(), dwellByRound = new Map();
+    let hires = 0, offersBuilt = 0; const hireDurations = [];
+    for (const application of applications) {
+        const version = await _versionByIdAsync(org_id, application.workflow_version_id);
+        const rounds = JSON.parse(version.rounds);
+        const transitions = await dblayer.getQueryOrThrow(
+            "SELECT * FROM stage_transition WHERE org_id=? AND application_id=? ORDER BY occurred_at ASC",
+            [org_id, application.application_id]);
+        const scorecards = await dblayer.getQueryOrThrow(
+            "SELECT * FROM scorecard WHERE org_id=? AND application_id=?", [org_id, application.application_id]);
+        const projected = _project(rounds, transitions, scorecards);
+        for (const round of projected.rounds) if (round.status != "pending")
+            reachedByRound.set(round.id, (reachedByRound.get(round.id) || 0) + 1);
+        for (const {round_id, sla_days, dwell_seconds} of _dwellDays(rounds, transitions, application.applied_at)) {
+            const bucket = dwellByRound.get(round_id) || {sla_days, dwells: []};
+            bucket.dwells.push(dwell_seconds); dwellByRound.set(round_id, bucket);
+        }
+
+        const offers = await dblayer.getQueryOrThrow(
+            `SELECT * FROM offer_version WHERE org_id=? AND application_id=? ORDER BY version DESC`,
+            [org_id, application.application_id]);
+        if (offers.length) {
+            offersBuilt++;
+            if (offers[0].status == "accepted") {
+                hires++;
+                if (offers[0].responded_at) hireDurations.push((offers[0].responded_at - application.applied_at)/86400);
+            }
+        }
+    }
+
+    const funnel = [{round_id: null, title: "Applied", sla_days: null, reached: applications.length, pct_of_previous: null}];
+    let previousReached = applications.length;
+    for (const round of displayRounds) {
+        const reached = reachedByRound.get(round.id) || 0;
+        funnel.push({round_id: round.id, title: round.title, sla_days: round.sla_days ?? null, reached,
+            pct_of_previous: previousReached ? Math.round((reached/previousReached)*100) : null});
+        previousReached = reached;
+    }
+    funnel.push({round_id: null, title: "Hired", sla_days: null, reached: hires, is_acceptance: true,
+        pct_of_previous: offersBuilt ? Math.round((hires/offersBuilt)*100) : null});
+
+    const time_in_stage = displayRounds.map(round => {
+        const bucket = dwellByRound.get(round.id);
+        const sla = Number.isInteger(round.sla_days) && round.sla_days > 0 ? round.sla_days : null;
+        if (!bucket || !bucket.dwells.length) return {round_id: round.id, title: round.title,
+            sla_days: sla, median_days: null, sla_met_pct: null};
+        const days = bucket.dwells.map(s => s/86400);
+        return {round_id: round.id, title: round.title, sla_days: sla,
+            median_days: Math.round(_median(days)*10)/10,
+            sla_met_pct: sla != null ? Math.round((days.filter(d => d <= sla).length/days.length)*100) : null};
+    });
+
+    return {workflow_code: request.workflow_code, from_date, to_date, applied: applications.length,
+        funnel, time_in_stage,
+        median_time_to_hire_days: hireDurations.length ? Math.round(_median(hireDurations)*10)/10 : null};
+}
+
+/**
+ * Source attribution (applicants vs hires) and decline reasons — org-wide,
+ * or narrowed to one requisition. Neither depends on any one workflow's
+ * round structure, unlike the funnel above.
+ *
+ * @param {string} org_id The org
+ * @param {string} actor_person_id The caller
+ * @param {object} request {requisition_id, from_date, to_date}
+ * @returns {object} {from_date, to_date, sources, declines, offers_total}
+ */
+exports.recruitmentOverviewAsync = async function(org_id, actor_person_id, request) {
+    await _requireReadAsync(org_id, actor_person_id, "read recruitment analytics");
+    const {from_date, to_date} = _defaultRange(request?.from_date, request?.to_date);
+    const from = Date.parse(`${from_date}T00:00:00Z`)/1000, to = Date.parse(`${to_date}T00:00:00Z`)/1000 + 86400;
+
+    const reqFilter = request?.requisition_id ? "AND a.requisition_id=?" : "";
+    const params = [org_id, from, to, ...(request?.requisition_id ? [request.requisition_id] : [])];
+    const applications = await dblayer.getQueryOrThrow(
+        `SELECT a.application_id, a.candidate_id FROM application a
+            WHERE a.org_id=? AND a.applied_at >= ? AND a.applied_at < ? ${reqFilter}`, params);
+    if (!applications.length) return {from_date, to_date, sources: [], declines: [], offers_total: 0};
+
+    const appIds = applications.map(a => a.application_id);
+    const candIds = [...new Set(applications.map(a => a.candidate_id))];
+    const candidates = await dblayer.getQueryOrThrow(
+        `SELECT candidate_id, source FROM candidate WHERE org_id=? AND candidate_id IN (${candIds.map(_ => "?").join(",")})`,
+        [org_id, ...candIds]);
+    const sourceByCandidate = Object.fromEntries(candidates.map(c => [c.candidate_id, c.source]));
+
+    const offers = await dblayer.getQueryOrThrow(
+        `SELECT * FROM offer_version WHERE org_id=? AND application_id IN (${appIds.map(_ => "?").join(",")})
+            ORDER BY version DESC`, [org_id, ...appIds]);
+    const latestOfferByApp = new Map();
+    for (const offer of offers) if (!latestOfferByApp.has(offer.application_id))
+        latestOfferByApp.set(offer.application_id, offer);   // version DESC — first seen per app is the latest
+
+    const sourceCounts = {};
+    for (const application of applications) {
+        const source = sourceByCandidate[application.candidate_id] || "other";
+        const bucket = sourceCounts[source] || (sourceCounts[source] = {applicants: 0, hires: 0});
+        bucket.applicants++;
+        if (latestOfferByApp.get(application.application_id)?.status == "accepted") bucket.hires++;
+    }
+    const totalApplicants = applications.length;
+    const totalHires = [...latestOfferByApp.values()].filter(o => o.status == "accepted").length;
+    const sources = CANDIDATE_SOURCES.map(source => {
+        const bucket = sourceCounts[source] || {applicants: 0, hires: 0};
+        return {source, applicants: bucket.applicants,
+            applicant_pct: totalApplicants ? Math.round((bucket.applicants/totalApplicants)*100) : 0,
+            hires: bucket.hires, hire_pct: totalHires ? Math.round((bucket.hires/totalHires)*100) : 0};
+    }).filter(s => s.applicants > 0 || s.hires > 0);
+
+    const declineCounts = {};
+    for (const offer of latestOfferByApp.values()) if (offer.status == "declined")
+        declineCounts[offer.decline_reason || "other"] = (declineCounts[offer.decline_reason || "other"] || 0) + 1;
+    const declines = Object.entries(declineCounts).map(([decline_reason, count]) => ({decline_reason, count}));
+
+    return {from_date, to_date, sources, declines, offers_total: latestOfferByApp.size};
+}
+
+// ---------------------------------------------------------------------------
 // the engine's core — pure, so its graph-walk can be reasoned about (and
 // tested) without a database
 // ---------------------------------------------------------------------------
@@ -1259,6 +1440,51 @@ async function _projectAsync(org_id, application) {
     const scorecards = await dblayer.getQueryOrThrow(
         "SELECT * FROM scorecard WHERE org_id=? AND application_id=?", [org_id, application.application_id]);
     return _project(rounds, transitions, scorecards);
+}
+
+/**
+ * K11: per-round dwell time, for every round with a resolving transition
+ * (advanced/rejected/skipped — the kinds that close a round). A round's
+ * stage-group opens the moment every earlier-sequence round has resolved;
+ * `_project`'s walk never allows a transition before that, so the latest
+ * occurred_at among strictly-earlier-sequence resolving transitions *is*
+ * that opening moment. This reads the timestamps that invariant already
+ * guarantees rather than re-deriving `_project`'s parallel/condition logic.
+ *
+ * @param {array} rounds The workflow version's round definitions
+ * @param {array} transitions This application's stage_transition rows
+ * @param {number} applied_at Unix seconds the application was created
+ * @returns {array} [{round_id, sla_days, dwell_seconds}]
+ */
+function _dwellDays(rounds, transitions, applied_at) {
+    const RESOLVING = ["advanced", "rejected", "skipped"];
+    const sequenceOf = Object.fromEntries(rounds.map(r => [r.id, r.sequence]));
+    const slaOf = Object.fromEntries(rounds.map(r => [r.id, r.sla_days]));
+    const resolved = transitions.filter(t => RESOLVING.includes(t.kind) && sequenceOf[t.round_id] != null);
+    return resolved.map(t => {
+        const sequence = sequenceOf[t.round_id];
+        const earlier = resolved.filter(t2 => sequenceOf[t2.round_id] < sequence);
+        const openedAt = earlier.length ? Math.max(applied_at, ...earlier.map(t2 => t2.occurred_at)) : applied_at;
+        return {round_id: t.round_id, sla_days: slaOf[t.round_id] ?? null, dwell_seconds: t.occurred_at - openedAt};
+    });
+}
+
+/** K11: median of a numeric array; null for an empty one — no fabricated midpoint for no data. */
+function _median(numbers) {
+    if (!numbers.length) return null;
+    const sorted = [...numbers].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length/2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid])/2;
+}
+
+/** K11: the default reporting window — a trailing 12 calendar months. */
+function _defaultRange(from_date, to_date) {
+    const to = to_date || _today();
+    _assertISODate(to, "to_date");
+    if (from_date) {_assertISODate(from_date, "from_date"); return {from_date, to_date: to};}
+    const start = new Date(`${to}T00:00:00Z`);
+    start.setUTCMonth(start.getUTCMonth() - 12);
+    return {from_date: start.toISOString().substring(0, 10), to_date: to};
 }
 
 // ---------------------------------------------------------------------------

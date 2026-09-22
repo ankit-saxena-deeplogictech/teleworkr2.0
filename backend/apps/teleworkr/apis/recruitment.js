@@ -25,6 +25,8 @@
  *  op - negotiate_offer     - K8: supersedes the current version, re-routes if it crosses a tier
  *  op - offer_outcome       - K8: accepted | declined (taxonomy reason) | expired | withdrawn (reason)
  *  op - offers              - K8: an application's full offer version history
+ *  op - funnel              - K11: pass-through, time-in-stage & SLA for one workflow template
+ *  op - analytics_overview  - K11: source attribution and decline reasons, org-wide or one requisition
  *
  * Interviewer availability itself is read from the calendar API's `board` op —
  * the E3 board with leave wired in — rather than duplicated here.
@@ -185,6 +187,16 @@ exports.doService = async jsonReq => {
                     jsonReq.application_id);
                 return {...CONSTANTS.TRUE_RESULT, ...result};
             }
+            case "funnel": {
+                const result = await recruitment.recruitmentFunnelAsync(jsonReq.org, actor.person_id,
+                    {workflow_code: jsonReq.workflow_code, from_date: jsonReq.from_date, to_date: jsonReq.to_date});
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
+            case "analytics_overview": {
+                const result = await recruitment.recruitmentOverviewAsync(jsonReq.org, actor.person_id,
+                    {requisition_id: jsonReq.requisition_id, from_date: jsonReq.from_date, to_date: jsonReq.to_date});
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
             default: return CONSTANTS.FALSE_RESULT;
         }
     } catch (err) {
@@ -202,6 +214,7 @@ const _actorAsync = async jsonReq => {
 const OPS = ["publish_workflow", "workflows", "raise_requisition", "approve_requisition", "requisitions",
     "apply", "board", "candidate", "legal_actions", "transition", "scorecard",
     "update_candidate", "schedule_panel", "reschedule_panel", "panel_outcome", "interviewer_load",
-    "build_offer", "approve_offer", "send_offer", "offer_viewed", "negotiate_offer", "offer_outcome", "offers"];
+    "build_offer", "approve_offer", "send_offer", "offer_viewed", "negotiate_offer", "offer_outcome", "offers",
+    "funnel", "analytics_overview"];
 
 const validateRequest = jsonReq => jsonReq && OPS.includes(jsonReq.op) && jsonReq.id && jsonReq.org;

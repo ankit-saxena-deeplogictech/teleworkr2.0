@@ -35,17 +35,21 @@ const _checkThrows = async (label, fn) => {
 
 // r1 (seq 1, no scorecard) -> r2a + r2b in parallel (seq 2, both scored) ->
 // r3 conditional on r2b's score (seq 3, scored) -> r4 (seq 4, no scorecard)
+// sla_days (K11): each round's declared target, unused by anything until K11
+// reads it back for adherence reporting — present here so that report has
+// something real to measure across every test that walks this workflow.
 const _rounds = () => [
     {id: "r1", title: "Resume review", round_type: "resume_review", sequence: 1, owner_role: "recruiter",
-        scorecard_criteria: []},
+        sla_days: 2, scorecard_criteria: []},
     {id: "r2a", title: "HR screening", round_type: "hr_screen", sequence: 2, parallel_group: "p2",
-        owner_role: "recruiter", scorecard_criteria: [{id: "c1", label: "Communication"}]},
+        owner_role: "recruiter", sla_days: 2, scorecard_criteria: [{id: "c1", label: "Communication"}]},
     {id: "r2b", title: "Logical assessment", round_type: "aptitude_test", sequence: 2, parallel_group: "p2",
-        owner_role: "system", scorecard_criteria: [{id: "c1", label: "Score"}]},
+        owner_role: "system", sla_days: 3, scorecard_criteria: [{id: "c1", label: "Score"}]},
     {id: "r3", title: "Technical L3", round_type: "technical", sequence: 3, owner_role: "principal_engineer",
-        condition: {round_id: "r2b", operator: "<", value: 3}, scorecard_criteria: [{id: "c1", label: "Depth"}]},
+        condition: {round_id: "r2b", operator: "<", value: 3}, sla_days: 2,
+        scorecard_criteria: [{id: "c1", label: "Depth"}]},
     {id: "r4", title: "HR final", round_type: "hr_final", sequence: 4, owner_role: "recruiter",
-        scorecard_criteria: []}
+        sla_days: 2, scorecard_criteria: []}
 ];
 
 exports.runTestsAsync = async function(argv) {
@@ -69,6 +73,7 @@ exports.runTestsAsync = async function(argv) {
         await _testIdempotency(w, requisition);
         await _testPanelScheduling(w, requisition);
         await _testOffers(w, workflow);
+        await _testAnalytics(w);
     } catch (err) {
         failed++; LOG.console(`  FAIL  recruitment tests threw: ${err}\n`); LOG.error(`Recruitment tests threw: ${err.stack}`);
     } finally {
@@ -700,6 +705,149 @@ async function _testOffers(w, workflow) {
         expires_on: _inDays(14), rationale: "Relocation is time-critical; the bonus offsets the notice-period gap."});
     _check("a joining bonus over 10% of the fixed amount alone requires two approvals, even within band",
         offer4.percentile == 20 && offer4.required_approvals == 2, JSON.stringify(offer4));
+}
+
+/**
+ * K11: pure reporting over a small, deliberately mixed cohort — one hire,
+ * one decline, one early rejection, one still-open hold — under its own
+ * dedicated workflow and requisition, so every count can be checked
+ * exactly instead of being diluted by every other test's applications
+ * sharing "swe-hiring".
+ */
+async function _testAnalytics(w) {
+    LOG.console("\n K11 — analytics & SLA\n");
+    const workflowCode = `analytics-${w.stamp}`;
+    await recruitment.publishWorkflowAsync({org_id: w.org_id, actor_person_id: w.dave,
+        workflow_code: workflowCode, title: "Analytics test", job_family: "Engineering",
+        rounds: [
+            {id: "r1", title: "Round one", round_type: "screen", sequence: 1, owner_role: "recruiter",
+                sla_days: 2, scorecard_criteria: []},
+            {id: "r2", title: "Round two", round_type: "technical", sequence: 2, owner_role: "recruiter",
+                sla_days: 1, scorecard_criteria: []}
+        ]});
+    const requisition = await recruitment.raiseRequisitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+        title: "Analytics Engineer", target_start: _inDays(60), workflow_code: workflowCode});
+    await recruitment.approveRequisitionAsync({org_id: w.org_id, actor_person_id: w.dave,
+        requisition_id: requisition.requisition_id});
+
+    const _apply = async (name, source) => (await recruitment.applyAsync({org_id: w.org_id,
+        actor_person_id: w.carol, requisition_id: requisition.requisition_id, full_name: name,
+        email: `${name.replace(/\s+/g, ".").toLowerCase()}.${w.stamp}@example.invalid`, source})).application_id;
+
+    // A: referral, hired.
+    const appA = await _apply("Hired Candidate", "referral");
+    await recruitment.recordTransitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: appA, round_id: "r1", kind: "advanced"});
+    await recruitment.recordTransitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: appA, round_id: "r2", kind: "advanced"});
+    const offerA = await recruitment.buildOfferAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: appA, fixed_amount: 150000, start_date: _inDays(45), expires_on: _inDays(14)});
+    await recruitment.approveOfferAsync({org_id: w.org_id, actor_person_id: w.dave,
+        offer_version_id: offerA.offer_version_id});
+    await recruitment.recordOfferOutcomeAsync({org_id: w.org_id, actor_person_id: w.carol,
+        offer_version_id: offerA.offer_version_id, outcome: "accepted"});
+
+    // B: referral, offer declined on compensation.
+    const appB = await _apply("Declined Candidate", "referral");
+    await recruitment.recordTransitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: appB, round_id: "r1", kind: "advanced"});
+    await recruitment.recordTransitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: appB, round_id: "r2", kind: "advanced"});
+    const offerB = await recruitment.buildOfferAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: appB, fixed_amount: 150000, start_date: _inDays(45), expires_on: _inDays(14)});
+    await recruitment.approveOfferAsync({org_id: w.org_id, actor_person_id: w.dave,
+        offer_version_id: offerB.offer_version_id});
+    await recruitment.recordOfferOutcomeAsync({org_id: w.org_id, actor_person_id: w.carol,
+        offer_version_id: offerB.offer_version_id, outcome: "declined", decline_reason: "compensation"});
+
+    // C: job board, rejected at round one — never reaches round two.
+    const appC = await _apply("Rejected Candidate", "job_board");
+    await recruitment.recordTransitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: appC, round_id: "r1", kind: "rejected", reason: "Not a fit for this role."});
+
+    // D: careers page, still open — held at round two, the non-completion bucket.
+    const appD = await _apply("Held Candidate", "careers_page");
+    await recruitment.recordTransitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: appD, round_id: "r1", kind: "advanced"});
+    await recruitment.recordTransitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: appD, round_id: "r2", kind: "held", reason: "Waiting on a reference.",
+        review_date: _inDays(5)});
+
+    // Round two's sla_days is 1. Push A's and B's round-two decisions two
+    // days later than they actually happened — a deterministic, timing-
+    // independent breach, leaving round one (untouched) comfortably inside
+    // its own 2-day target.
+    await dblayer.runCmdOrThrow(
+        `UPDATE stage_transition SET occurred_at = occurred_at + 172800
+            WHERE org_id=? AND round_id='r2' AND kind='advanced' AND application_id IN (?,?)`,
+        [w.org_id, appA, appB]);
+
+    const funnel = await recruitment.recruitmentFunnelAsync(w.org_id, w.carol, {workflow_code: workflowCode});
+    _check("applied counts every candidate raised under this workflow's own requisition",
+        funnel.applied == 4, JSON.stringify(funnel.funnel));
+    const [, round1, round2, hired] = funnel.funnel;
+    _check("round one is reached by all four applications",
+        round1.round_id == "r1" && round1.reached == 4 && round1.pct_of_previous == 100, JSON.stringify(round1));
+    _check("round two is reached by the three who cleared round one",
+        round2.round_id == "r2" && round2.reached == 3 && round2.pct_of_previous == 75, JSON.stringify(round2));
+    _check("the trailing row is an acceptance rate over offers built, not a stage pass-through",
+        hired.is_acceptance === true && hired.reached == 1 && hired.pct_of_previous == 50, JSON.stringify(hired));
+    _check("median time to hire is computed from the one accepted offer",
+        funnel.median_time_to_hire_days != null && funnel.median_time_to_hire_days >= 0,
+        JSON.stringify(funnel.median_time_to_hire_days));
+
+    const [stage1, stage2] = funnel.time_in_stage;
+    _check("round one's dwell comfortably meets its 2-day SLA for all four decisions",
+        stage1.sla_days == 2 && stage1.sla_met_pct == 100, JSON.stringify(stage1));
+    _check("round two's pushed-out dwell breaches its 1-day SLA for both decisions",
+        stage2.sla_days == 1 && stage2.sla_met_pct == 0 && stage2.median_days >= 2, JSON.stringify(stage2));
+
+    const overview = await recruitment.recruitmentOverviewAsync(w.org_id, w.carol,
+        {requisition_id: requisition.requisition_id});
+    const referral = overview.sources.find(s => s.source == "referral");
+    const jobBoard = overview.sources.find(s => s.source == "job_board");
+    const careers = overview.sources.find(s => s.source == "careers_page");
+    _check("referral is half the applicants and all of the hires",
+        referral?.applicants == 2 && referral.applicant_pct == 50 && referral.hires == 1 && referral.hire_pct == 100,
+        JSON.stringify(referral));
+    _check("job board contributed an applicant but no hire",
+        jobBoard?.applicants == 1 && jobBoard.hires == 0, JSON.stringify(jobBoard));
+    _check("careers page contributed the still-open applicant, no hire yet",
+        careers?.applicants == 1 && careers.hires == 0, JSON.stringify(careers));
+    _check("the one decline is attributed to compensation, out of the two offers built",
+        overview.offers_total == 2 && overview.declines.length == 1 &&
+        overview.declines[0].decline_reason == "compensation" && overview.declines[0].count == 1,
+        JSON.stringify(overview.declines));
+
+    await _checkThrows("an employee cannot read the funnel",
+        _ => recruitment.recruitmentFunnelAsync(w.org_id, w.alice, {workflow_code: workflowCode}));
+    await _checkThrows("an employee cannot read the overview",
+        _ => recruitment.recruitmentOverviewAsync(w.org_id, w.alice, {}));
+    await _checkThrows("a workflow_code with no published pointer is refused, not silently empty",
+        _ => recruitment.recruitmentFunnelAsync(w.org_id, w.carol, {workflow_code: `no-such-workflow-${w.stamp}`}));
+
+    // Interviewer load's concentration stat, isolated to its own date window
+    // so it can't be diluted by K6's own panel-scheduling test fixture.
+    const day = _inDays(300);
+    const panels = [
+        {who: w.bob, start: _at(day, 9), end: _at(day, 11)},
+        {who: w.bob, start: _at(day, 13), end: _at(day, 15)},
+        {who: w.alice, start: _at(day, 9), end: _at(day, 10)}
+    ];
+    for (const [i, panel] of panels.entries())
+        await dblayer.runCmdOrThrow(`INSERT INTO panel_assignment (panel_assignment_id, org_id, application_id,
+                round_id, interviewer_person_ids, scheduled_start, scheduled_end, status, scheduled_by, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?)`,
+            [`k11-panel-${w.stamp}-${i}`, w.org_id, appA, "r1", JSON.stringify([panel.who]),
+                panel.start, panel.end, "completed", w.carol, Math.floor(Date.now()/1000)]);
+
+    const load = await recruitment.interviewerLoadAsync(w.org_id, w.carol, day, day);
+    _check("the list itself stays name-sorted — bob has more hours but alice sorts first",
+        load.interviewers[0]?.person_id == w.alice && load.interviewers[1]?.person_id == w.bob,
+        JSON.stringify(load.interviewers.map(i => i.person_id)));
+    _check("concentration reports the busiest quarter's share of total hours, not a ranked list",
+        load.concentration_headcount == 1 && load.concentration_pct == 80,
+        JSON.stringify({headcount: load.concentration_headcount, pct: load.concentration_pct}));
 }
 
 async function _buildWorld() {

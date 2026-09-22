@@ -40,7 +40,7 @@ export async function render(root) {
         canOffer: caps.includes("offer.approve"),
         composerOpen: false, workflowDraft: null, requisitionDraft: null,
         selectedRequisitionId: null, selectedApplicationId: null, addCandidateOpen: false,
-        reschedulingPanelId: null, roster: null, offerComposerOpen: false};
+        reschedulingPanelId: null, roster: null, offerComposerOpen: false, analyticsWorkflowCode: null};
     await _view();
 }
 
@@ -51,6 +51,7 @@ async function _view() {
             <button class="tr-tab${state.tab == "requisitions" ? " on" : ""}" data-rc="tab" data-tab="requisitions">Requisitions</button>
             <button class="tr-tab${state.tab == "workflows" ? " on" : ""}" data-rc="tab" data-tab="workflows">Workflows</button>
             <button class="tr-tab${state.tab == "pipeline" ? " on" : ""}" data-rc="tab" data-tab="pipeline">Pipeline</button>
+            <button class="tr-tab${state.tab == "analytics" ? " on" : ""}" data-rc="tab" data-tab="analytics">Analytics</button>
         </div>
         <div class="tr-view" id="rc-view"></div>
     </div>`;
@@ -61,6 +62,7 @@ async function _view() {
     try {
         if (state.tab == "workflows") return await _workflows(view);
         if (state.tab == "pipeline") return await _pipeline(view);
+        if (state.tab == "analytics") return await _analytics(view);
         return await _requisitions(view);
     } catch (err) {
         view.innerHTML = states.error({title: "Couldn't load recruitment",
@@ -1038,6 +1040,122 @@ function _wireOfferSection(holder, root, record) {
 }
 
 const _money = amount => amount == null ? "—" : Number(amount).toLocaleString();
+
+// ---------------------------------------------------------------------------
+// K11 — recruitment analytics & SLA: pure reporting, gated the same as
+// everything else on this screen. Funnel/time-in-stage/SLA are scoped to
+// one workflow template at a time — a round graph only means something
+// within one; sources, declines and interviewer load are org-wide.
+// ---------------------------------------------------------------------------
+
+async function _analytics(root) {
+    root.innerHTML = `<div class="tr-band">${states.loading({rows: 3})}</div>`;
+    const workflowsResponse = await _rest("workflows");
+    if (!workflowsResponse) return;
+    const workflows = workflowsResponse.workflows || [];
+    if (!workflows.length) {
+        root.innerHTML = `<div class="tr-empty">No workflows published yet — publish one on the Workflows tab first.</div>`;
+        return;
+    }
+    if (!state.analyticsWorkflowCode || !workflows.some(w => w.workflow_code == state.analyticsWorkflowCode))
+        state.analyticsWorkflowCode = workflows[0].workflow_code;
+
+    const [from_date, to_date] = _last12Months();
+    const [funnel, overview, load] = await Promise.all([
+        _rest("funnel", {workflow_code: state.analyticsWorkflowCode}),
+        _rest("analytics_overview", {}),
+        _rest("interviewer_load", {from_date, to_date})]);
+    if (!funnel || !overview || !load) return;
+    _renderAnalytics(root, workflows, funnel, overview, load);
+}
+
+function _renderAnalytics(root, workflows, funnel, overview, load) {
+    const maxReached = Math.max(1, ...funnel.funnel.map(r => r.reached));
+    const currentTitle = workflows.find(w => w.workflow_code == state.analyticsWorkflowCode)?.title || "";
+    const totalSeconds = load.interviewers.reduce((sum, row) => sum + row.seconds, 0);
+
+    root.innerHTML = `
+        <div class="row wrap">
+            <select class="inp" id="rc-analytics-workflow">
+                ${workflows.map(w => `<option value="${states.esc(w.workflow_code)}"${
+                    w.workflow_code == state.analyticsWorkflowCode ? " selected" : ""}>${states.esc(w.title)}</option>`).join("")}
+            </select>
+            <span class="sm t3">${states.esc(funnel.from_date)} – ${states.esc(funnel.to_date)}</span>
+        </div>
+
+        <div class="tr-card" style="margin-top:10px">
+            <div class="up t3">Funnel · ${states.esc(currentTitle)}</div>
+            ${funnel.funnel.map(row => `
+                <div class="tr-track-row">
+                    <span style="width:130px">${states.esc(row.title)}</span>
+                    <div class="tr-bar grow"><span style="width:${Math.round((row.reached/maxReached)*100)}%"></span></div>
+                    <span class="sm t3" style="width:120px;text-align:right">${row.reached}${
+                        row.pct_of_previous != null ? ` · ${row.pct_of_previous}%${row.is_acceptance ? " acceptance" : ""}` : ""}</span>
+                </div>`).join("")}
+            ${funnel.applied == 0 ? `<div class="sm t3" style="margin-top:8px">No applications in this window yet.</div>` : ""}
+        </div>
+
+        <div class="row wrap" style="align-items:flex-start;gap:14px;margin-top:10px">
+            <div class="tr-card grow">
+                <div class="up t3">Time in stage</div>
+                ${funnel.time_in_stage.map(stage => {
+                    const breached = stage.sla_days != null && stage.median_days != null && stage.median_days > stage.sla_days;
+                    const color = stage.median_days == null ? "" : breached ? "var(--ember)" : "var(--mint)";
+                    return `<div class="tr-track-row">
+                        <span class="grow">${states.esc(stage.title)}</span>
+                        <span class="sm" style="color:${color}">${stage.median_days != null ? `${stage.median_days}d` : "—"}${
+                            stage.sla_days != null ? ` <span class="t3">(SLA ${stage.sla_days}d${
+                                stage.sla_met_pct != null ? `, met ${stage.sla_met_pct}%` : ""})</span>` : ""}</span></div>`;
+                }).join("")}
+                <div class="sm t3" style="margin-top:8px">${funnel.median_time_to_hire_days != null ?
+                    `Median time to hire: ${funnel.median_time_to_hire_days} days.` : "No completed hires in this window yet."}</div>
+            </div>
+
+            <div class="tr-card grow">
+                <div class="up t3">Interviewer load · last 12 months</div>
+                <div class="sm t3">${_hm(totalSeconds)} across ${load.interviewers.length} interviewer${
+                    load.interviewers.length == 1 ? "" : "s"}.${load.concentration_pct != null ?
+                        ` ${load.concentration_pct}% sat with the busiest ${load.concentration_headcount}.` : ""}</div>
+                <div class="sm t3" style="margin-top:4px">Reported as distribution, never as a ranking.</div>
+                ${load.interviewers.length ? load.interviewers.map(row => `<div class="tr-track-row">
+                    <span class="grow">${states.esc(row.name)}</span>
+                    <span class="sm t3">${row.panels} panel${row.panels == 1 ? "" : "s"} · ${_hm(row.seconds)}</span></div>`).join("") :
+                    `<div class="tr-empty">No panels in this window.</div>`}
+            </div>
+        </div>
+
+        <div class="row wrap" style="align-items:flex-start;gap:14px;margin-top:10px">
+            <div class="tr-card grow">
+                <div class="up t3">Sources</div>
+                ${overview.sources.length ? overview.sources.map(s => `<div class="tr-track-row">
+                    <span class="grow">${states.esc(s.source)}</span>
+                    <span class="sm t3">${s.applicant_pct}% of applicants · ${s.hire_pct}% of hires</span></div>`).join("") :
+                    `<div class="tr-empty">No applications in this window.</div>`}
+                <div class="sm t3" style="margin-top:8px">Compared on hires, not on raw applicant counts.</div>
+            </div>
+            <div class="tr-card grow">
+                <div class="up t3">Why offers fail</div>
+                ${overview.declines.length ? overview.declines.map(d => `<div class="tr-track-row">
+                    <span class="grow">${states.esc(d.decline_reason)}</span>
+                    <span class="sm t3">${d.count}</span></div>`).join("") :
+                    `<div class="tr-empty">No declines in this window.</div>`}
+                <div class="sm t3" style="margin-top:8px">${overview.offers_total} offer${
+                    overview.offers_total == 1 ? "" : "s"} built in this window.</div>
+            </div>
+        </div>`;
+
+    root.querySelector("#rc-analytics-workflow").addEventListener("change", event => {
+        state.analyticsWorkflowCode = event.target.value; _analytics(root);
+    });
+}
+
+/** Trailing 12 calendar months, as ISO dates — the analytics window's default. */
+function _last12Months() {
+    const to = _today();
+    const from = new Date(`${to}T00:00:00Z`);
+    from.setUTCMonth(from.getUTCMonth() - 12);
+    return [from.toISOString().substring(0, 10), to];
+}
 
 // ---------------------------------------------------------------------------
 // time, read in a zone — the same noon probe windows.js uses, so the strip and
