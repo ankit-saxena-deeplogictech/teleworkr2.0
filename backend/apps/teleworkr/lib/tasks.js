@@ -207,6 +207,40 @@ exports.taskDetailAsync = async function(request) {
         logged_seconds: _currentLoggedSeconds(timeLog, _now())};
 }
 
+/**
+ * The "blocked drag" a person is carrying (M1): the share of their currently
+ * open task-time spent blocked. Reuses the same blocked_seconds calculation
+ * `_withBlockedOnAsync` already does per task, aggregated across the person's
+ * open work instead of shown per row. No capability check of its own — this
+ * is a plain read helper for another module's already-gated caller, the same
+ * layering `windows.js`/`leave.js` already use for each other.
+ *
+ * @param {string} org_id The org
+ * @param {string} person_id The person
+ * @returns {object} {blocked_seconds, open_seconds, ratio} — ratio is null with no open work
+ */
+exports.blockedLoadForPersonAsync = async function(org_id, person_id) {
+    const now = _now();
+    const openTasks = await dblayer.getQueryOrThrow(
+        `SELECT * FROM task WHERE org_id=? AND assignee_person_id=? AND archived_at IS NULL AND status != 'done'`,
+        [org_id, person_id]);
+    if (!openTasks.length) return {blocked_seconds: 0, open_seconds: 0, ratio: null};
+
+    const blockedIds = openTasks.filter(task => task.status == STATUS.BLOCKED).map(task => task.task_id);
+    let blockedSeconds = 0;
+    if (blockedIds.length) {
+        const relations = await dblayer.getQueryOrThrow(
+            `SELECT to_task_id, MIN(created_at) AS since FROM task_relation
+                WHERE org_id=? AND to_task_id IN (${blockedIds.map(_ => "?").join(",")})
+                    AND relation_type='blocks' AND resolved_at IS NULL GROUP BY to_task_id`,
+            [org_id, ...blockedIds]);
+        blockedSeconds = relations.reduce((sum, relation) => sum + Math.max(0, now - relation.since), 0);
+    }
+    const openSeconds = openTasks.reduce((sum, task) => sum + Math.max(0, now - task.created_at), 0);
+    return {blocked_seconds: blockedSeconds, open_seconds: openSeconds,
+        ratio: openSeconds ? blockedSeconds/openSeconds : null};
+}
+
 // ---------------------------------------------------------------------------
 // updating
 // ---------------------------------------------------------------------------

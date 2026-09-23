@@ -91,6 +91,8 @@ const CATALOGUE = Object.freeze({
     "audit.read_policy": {label: "Read compliance and policy audit entries", scopes: [SCOPES.ORG]},
     "wellbeing.read_own": {label: "Read your own load", scopes: [SCOPES.SELF]},
     "wellbeing.read_aggregate": {label: "Read team load as an aggregate", scopes: [SCOPES.DIRECT_REPORTS, SCOPES.TEAM, SCOPES.ORG]},
+    "wellbeing.publish_signal": {label: "Publish a wellbeing signal definition", scopes: [SCOPES.ORG],
+        always_audited: true},
 
     // tasks (D1/D2) — collaboration objects, org-wide reads
     "task.create": {label: "Create tasks", scopes: [SCOPES.ORG]},
@@ -151,7 +153,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["leave_policy.publish", SCOPES.ORG], ["leave_run.operate", SCOPES.ORG], ["candidate.read", SCOPES.ORG],
         ["person_data.export", SCOPES.ORG],
         ["wellbeing.read_aggregate", SCOPES.ORG], ["audit.read_own", SCOPES.SELF], ["audit.read_policy", SCOPES.ORG],
-        ["wellbeing.read_own", SCOPES.SELF],
+        ["wellbeing.read_own", SCOPES.SELF], ["wellbeing.publish_signal", SCOPES.ORG],
         ["training.publish", SCOPES.ORG], ["training.assign", SCOPES.ORG], ["training.track", SCOPES.ORG],
         ["survey.publish", SCOPES.ORG],
         ["workflow.publish", SCOPES.ORG], ["requisition.approve", SCOPES.ORG], ["requisition.create", SCOPES.ORG],
@@ -163,6 +165,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["capability.grant", SCOPES.ORG], ["capability.revoke", SCOPES.ORG], ["audit.read_all", SCOPES.ORG],
         ["audit.read_own", SCOPES.SELF], ["person_data.export", SCOPES.ORG], ["user.impersonate", SCOPES.ORG],
         ["wiki.publish_public", SCOPES.ORG], ["wellbeing.read_own", SCOPES.SELF],
+        ["wellbeing.publish_signal", SCOPES.ORG],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG], ["task.delete", SCOPES.ORG],
         ["people.import", SCOPES.ORG], ["leave.approve", SCOPES.ORG], ["leave_run.operate", SCOPES.ORG],
         ["training.publish", SCOPES.ORG], ["survey.publish", SCOPES.ORG],

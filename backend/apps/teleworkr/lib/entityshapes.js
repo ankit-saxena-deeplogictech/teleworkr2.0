@@ -134,6 +134,14 @@ const REGISTER = Object.freeze({
         note: "One row per distinct approver — the database's own enforcement that the same person cannot satisfy the route twice."},
     signal_ledger_entry: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.ERASE, keep: "13m", anchor: ANCHORS.SIGNAL_EVALUATED,
         note: "Reads six tables, writes one. The wellbeing module adds no new collection — that is what makes it defensible."},
+    signal_definition: {shape: SHAPES.VERSIONED_POINTER, erasure: ERASURE.RETAIN, keep: null, anchor: ANCHORS.NONE,
+        note: "Policy, not personal data — HR-owned, versioned like a leave policy. Kept indefinitely for the same reason a policy document is: an evaluation months ago must still point at the threshold that produced it."},
+    signal_threshold_override: {shape: SHAPES.MUTABLE, erasure: ERASURE.ERASE, keep: null, anchor: ANCHORS.NONE,
+        note: "A person's own tightened threshold. Erased with the person, not retained past them — it describes a preference, not an event."},
+    signal_mute: {shape: SHAPES.MUTABLE, erasure: ERASURE.ERASE, keep: null, anchor: ANCHORS.NONE,
+        note: "A settings row, same treatment as signal_threshold_override."},
+    signal_share: {shape: SHAPES.EDGE, erasure: ERASURE.ERASE, keep: "6m", anchor: ANCHORS.OCCURRED,
+        note: "A deliberate, scoped disclosure the person made about themselves (M2 item 5) — anchored to created_at. Shares themselves expire in about two weeks; six months is runway past that, not a claim the share is still live."},
 
     // --- training (P1 item 8: erasure declared here, not decided in L3's queue) ---
     course_version: {shape: SHAPES.VERSIONED_POINTER, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.NONE,

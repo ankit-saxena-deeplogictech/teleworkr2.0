@@ -95,7 +95,16 @@ const SURFACES = Object.freeze({
     // gate; narrower actions (workflow.publish, requisition.approve, and so
     // on) gate their own regions inside the screen.
     recruitment: {console: "Admin", label: "Recruitment", screen: "K1", order: 165, classification: CLASS.EXCLUSIVE,
-        capability: "candidate.read"}
+        capability: "candidate.read"},
+
+    // Wellbeing (M): one screen, internally tabbed by capability — my load is
+    // everyone's own (wellbeing.read_own, every built-in role holds it); team
+    // load and signal definitions only appear inside the screen for whoever
+    // also holds wellbeing.read_aggregate / wellbeing.publish_signal. Same
+    // "console differs by entry point, never by screen identity" reasoning
+    // as every other multi-tab surface here.
+    wellbeing: {console: "Me", label: "Wellbeing", screen: "M2", order: 75, classification: CLASS.SHARED,
+        capability: "wellbeing.read_own"}
 });
 
 /**
