@@ -104,7 +104,13 @@ const SURFACES = Object.freeze({
     // "console differs by entry point, never by screen identity" reasoning
     // as every other multi-tab surface here.
     wellbeing: {console: "Me", label: "Wellbeing", screen: "M2", order: 75, classification: CLASS.SHARED,
-        capability: "wellbeing.read_own"}
+        capability: "wellbeing.read_own"},
+
+    // Wiki (N): its own console, the same way "Leave" and "Assigned" exist
+    // for their sections — TABS is a frozen 5-slot header (day/tasks/
+    // calendar/timeline/team), so this cannot be a bare tab.
+    wiki: {console: "Wiki", label: "Wiki", screen: "N1", order: 170, classification: CLASS.SHARED,
+        capability: "wiki.read"}
 });
 
 /**

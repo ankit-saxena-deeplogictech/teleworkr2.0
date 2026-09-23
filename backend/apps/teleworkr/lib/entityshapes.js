@@ -143,6 +143,26 @@ const REGISTER = Object.freeze({
     signal_share: {shape: SHAPES.EDGE, erasure: ERASURE.ERASE, keep: "6m", anchor: ANCHORS.OCCURRED,
         note: "A deliberate, scoped disclosure the person made about themselves (M2 item 5) — anchored to created_at. Shares themselves expire in about two weeks; six months is runway past that, not a claim the share is still live."},
 
+    // --- wiki (N) ---
+    wiki_space: {shape: SHAPES.MUTABLE, erasure: ERASURE.RETAIN, keep: null, anchor: ANCHORS.NONE,
+        note: "The permission and publishing boundary, not personal data about any one person."},
+    wiki_space_member: {shape: SHAPES.EDGE, erasure: ERASURE.ERASE, keep: "7y", anchor: ANCHORS.EMPLOYMENT_ENDED,
+        note: "Same treatment as capability_grant's own edge — membership is meaningful only while the employment is."},
+    wiki_page: {shape: SHAPES.MUTABLE, erasure: ERASURE.PSEUDONYMISE, keep: null, anchor: ANCHORS.NONE,
+        note: "Organisational knowledge outlives the person who wrote it (N1 item 5's own point — an unowned page is worse than a missing one, so the row survives; the owner reference is pseudonymised)."},
+    wiki_page_version: {shape: SHAPES.VERSIONED_POINTER, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.NONE,
+        note: "Not personal data. Same reasoning as course_version: you must be able to show what a runbook said when someone followed it."},
+    wiki_review: {shape: SHAPES.EDGE, erasure: ERASURE.RETAIN, keep: null, anchor: ANCHORS.NONE,
+        note: "Review history stays with the page it approved."},
+    wiki_public_request: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.OCCURRED,
+        note: "A compliance record of who approved what going public, and when — kept the way audit_event is."},
+    wiki_share_link: {shape: SHAPES.EDGE, erasure: ERASURE.ERASE, keep: "6m", anchor: ANCHORS.OCCURRED,
+        note: "Same treatment as signal_share — expires in days/weeks; six months is runway, not a claim it's still live."},
+    wiki_acknowledgement: {shape: SHAPES.EDGE, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.OCCURRED,
+        note: "\"Exportable for an audit\" (N4 item 5) is the stated purpose — same treatment as audit_event."},
+    wiki_page_task_link: {shape: SHAPES.EDGE, erasure: ERASURE.RETAIN, keep: null, anchor: ANCHORS.NONE,
+        note: "A structural relation between two organisational objects, not personal data."},
+
     // --- training (P1 item 8: erasure declared here, not decided in L3's queue) ---
     course_version: {shape: SHAPES.VERSIONED_POINTER, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.NONE,
         note: "Not personal data. You must be able to show what the course said when someone passed it."},

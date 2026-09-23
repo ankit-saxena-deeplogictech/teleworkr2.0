@@ -81,6 +81,8 @@ const CATALOGUE = Object.freeze({
         step_up: true, always_audited: true},
     "wiki.publish_public": {label: "Publish a wiki page to the internet", scopes: [SCOPES.TEAM, SCOPES.ORG],
         step_up: true, always_audited: true, irreversible: true},
+    "wiki.read": {label: "Read the wiki", scopes: [SCOPES.ORG]},
+    "wiki.write": {label: "Create and edit wiki pages", scopes: [SCOPES.ORG]},
     "user.impersonate": {label: "Impersonate a user", scopes: [SCOPES.ORG],
         step_up: true, always_audited: true, action_requires_reason: true},
     "role.assign": {label: "Assign a role", scopes: [SCOPES.ORG], always_audited: true},
@@ -139,6 +141,7 @@ const BUILTIN_ROLES = Object.freeze({
     employee: {label: "Employee", capabilities: [
         ["time.read_own", SCOPES.SELF], ["timesheet.read", SCOPES.SELF], ["leave.request", SCOPES.SELF],
         ["audit.read_own", SCOPES.SELF], ["wellbeing.read_own", SCOPES.SELF],
+        ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     lead: {label: "Team lead", capabilities: [
         ["time.read_own", SCOPES.SELF], ["timesheet.read", SCOPES.DIRECT_REPORTS], ["timesheet.approve", SCOPES.DIRECT_REPORTS],
@@ -146,6 +149,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["person_data.export", SCOPES.DIRECT_REPORTS], ["wellbeing.read_aggregate", SCOPES.DIRECT_REPORTS],
         ["audit.read_own", SCOPES.SELF], ["wellbeing.read_own", SCOPES.SELF],
         ["training.assign", SCOPES.DIRECT_REPORTS], ["training.track", SCOPES.DIRECT_REPORTS],
+        ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     hr: {label: "HR", capabilities: [
         ["time.read_own", SCOPES.SELF], ["timesheet.read", SCOPES.ORG], ["timesheet.approve", SCOPES.DIRECT_REPORTS],
@@ -154,6 +158,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["person_data.export", SCOPES.ORG],
         ["wellbeing.read_aggregate", SCOPES.ORG], ["audit.read_own", SCOPES.SELF], ["audit.read_policy", SCOPES.ORG],
         ["wellbeing.read_own", SCOPES.SELF], ["wellbeing.publish_signal", SCOPES.ORG],
+        ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG], ["wiki.publish_public", SCOPES.ORG],
         ["training.publish", SCOPES.ORG], ["training.assign", SCOPES.ORG], ["training.track", SCOPES.ORG],
         ["survey.publish", SCOPES.ORG],
         ["workflow.publish", SCOPES.ORG], ["requisition.approve", SCOPES.ORG], ["requisition.create", SCOPES.ORG],
@@ -165,7 +170,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["capability.grant", SCOPES.ORG], ["capability.revoke", SCOPES.ORG], ["audit.read_all", SCOPES.ORG],
         ["audit.read_own", SCOPES.SELF], ["person_data.export", SCOPES.ORG], ["user.impersonate", SCOPES.ORG],
         ["wiki.publish_public", SCOPES.ORG], ["wellbeing.read_own", SCOPES.SELF],
-        ["wellbeing.publish_signal", SCOPES.ORG],
+        ["wellbeing.publish_signal", SCOPES.ORG], ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG], ["task.delete", SCOPES.ORG],
         ["people.import", SCOPES.ORG], ["leave.approve", SCOPES.ORG], ["leave_run.operate", SCOPES.ORG],
         ["training.publish", SCOPES.ORG], ["survey.publish", SCOPES.ORG],

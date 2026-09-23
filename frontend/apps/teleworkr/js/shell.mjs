@@ -28,6 +28,7 @@ import {render as renderPeople} from "./screens/people.mjs";
 import {render as renderDisclosure} from "./screens/disclosure.mjs";
 import {render as renderRecruitment} from "./screens/recruitment.mjs";
 import {render as renderWellbeing} from "./screens/wellbeing.mjs";
+import {render as renderWiki} from "./screens/wiki.mjs";
 
 const API_SHELL = "shell", API_CLOCK = "clock";
 
@@ -40,7 +41,7 @@ const API_SHELL = "shell", API_CLOCK = "clock";
 const SCREENS = {day: renderDayBoard, training: renderTraining, trainingtrack: renderTraining,
     surveys: renderSurveys, tasks: renderTasks, timesheet: renderTimesheet,
     team: renderTeam, calendar: renderCalendar, leave: renderLeave, people: renderPeople,
-    me: renderDisclosure, recruitment: renderRecruitment, wellbeing: renderWellbeing};
+    me: renderDisclosure, recruitment: renderRecruitment, wellbeing: renderWellbeing, wiki: renderWiki};
 const CLOCK_POLL_MS = 30000;        // the server is the record; the local tick is only the seconds between polls
 const THEME_KEY = "__teleworkr_theme";
 
