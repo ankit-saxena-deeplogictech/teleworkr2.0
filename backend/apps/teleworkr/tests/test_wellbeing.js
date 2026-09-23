@@ -193,22 +193,26 @@ async function _testIdempotencyAndMute(w) {
     _check("a newly-lit signal, unmuted, raised the already-catalogued wellbeing_signal notification",
         notified.length > 0, JSON.stringify(notified.map(n => n.status)));
 
-    await wellbeing.muteAsync({org_id: w.org_id, person_id: w.norecovery, signal_code: "no_recovery",
-        muted_until: _isoDaysAgo(_today(), -14)});
-    // force tomorrow's evaluation to see a fresh newly-lit transition under mute
-    await _insertTime(w, w.norecovery, _isoDaysAgo(_today(), -1),
-        Math.floor(Date.parse(`${_isoDaysAgo(_today(), -1)}T10:00:00Z`)/1000), 3600);
-    const tomorrow = _isoDaysAgo(_today(), -1);
-    await wellbeing.evaluateSignalsAsync({org_id: w.org_id, actor_person_id: w.carol, evaluated_for: tomorrow});
+    // A fresh person, muted before their first-ever evaluation — isolated from
+    // w.norecovery's own fixture, which already lit (and notified) earlier in
+    // this same test, so it can never produce a second "newly lit" transition
+    // to observe muting against.
+    const muteEvalDate = "2026-11-15";
+    await wellbeing.muteAsync({org_id: w.org_id, person_id: w.muted, signal_code: "no_recovery",
+        muted_until: "2026-12-31"});   // must outlast muteEvalDate, not "today" — the mute is checked as of evaluated_for
+    for (let daysAgo = 0; daysAgo < 13; daysAgo++)
+        await _insertTime(w, w.muted, _isoDaysAgo(muteEvalDate, daysAgo),
+            Math.floor(Date.parse(`${_isoDaysAgo(muteEvalDate, daysAgo)}T10:00:00Z`)/1000), 3600);
+    await wellbeing.evaluateSignalsAsync({org_id: w.org_id, actor_person_id: w.carol, evaluated_for: muteEvalDate});
     const ledgerRow = (await dblayer.getQueryOrThrow(
         "SELECT * FROM signal_ledger_entry WHERE org_id=? AND person_id=? AND signal_code=? AND evaluated_for=?",
-        [w.org_id, w.norecovery, "no_recovery", tomorrow]))[0];
+        [w.org_id, w.muted, "no_recovery", muteEvalDate]))[0];
     _check("the ledger keeps writing while muted — signals are computed regardless",
         ledgerRow?.lit == 1, JSON.stringify(ledgerRow));
     const mutedNotification = await dblayer.getQueryOrThrow(
         `SELECT * FROM notification WHERE org_id=? AND recipient_person_id=? AND category='wellbeing_signal' AND object_ref='no_recovery'`,
-        [w.org_id, w.norecovery]);
-    _check("but muting suppressed the notification for that signal",
+        [w.org_id, w.muted]);
+    _check("but muting suppressed the notification for that first-ever, newly-lit signal",
         mutedNotification.length == 0, JSON.stringify(mutedNotification));
 }
 
@@ -290,7 +294,7 @@ async function _buildWorld() {
     const org = await spine.createOrgAsync({name: `Wellbeing test ${stamp}`, home_jurisdiction: "IN"});
     const roleOf = {carol: "hr", employee: "employee", loaded: "employee", steady: "employee",
         norecovery: "employee", outofwindow: "employee", blockeddrag: "employee", leavenottaken: "employee",
-        smallLead: "lead", bigLead: "lead"};
+        muted: "employee", smallLead: "lead", bigLead: "lead"};
     const people = {};
     for (const who of Object.keys(roleOf))
         people[who] = await spine.createPersonAsync({display_name: who, email: `${who}.${stamp}@example.invalid`});
@@ -334,7 +338,7 @@ async function _cleanup(w) {
     await dblayer.runCmdBestEffortAsync("DELETE FROM capability_grant WHERE org_id=?", [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM org WHERE org_id=?", [w.org_id]);
     for (const who of ["carol", "employee", "loaded", "steady", "norecovery", "outofwindow", "blockeddrag",
-        "leavenottaken", "smallLead", "bigLead"])
+        "leavenottaken", "muted", "smallLead", "bigLead"])
         if (w[who]) await dblayer.runCmdBestEffortAsync("DELETE FROM person WHERE person_id=?", [w[who]]);
     for (const report of [...(w.smallReports||[]), ...(w.bigReports||[])])
         await dblayer.runCmdBestEffortAsync("DELETE FROM person WHERE person_id=?", [report.person_id]);

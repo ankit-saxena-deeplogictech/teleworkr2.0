@@ -413,13 +413,22 @@ exports.evaluateSignalsAsync = async function(request) {
     _assertISODate(evaluated_for, "evaluated_for");
     const batch_tag = `${evaluated_for}-${_uuid().slice(0, 8)}`;
 
+    // Computed BEFORE the transaction opens, same reasoning as
+    // `runs.executeRunAsync`'s own `_computeAsync` call: every dblayer
+    // accessor is routed through one serial queue (dblayer.js's own header),
+    // so calling a plain accessor from inside runInTransactionAsync's
+    // callback would enqueue it behind the transaction currently holding
+    // that queue — a self-deadlock. `_computeNightAsync` reads through
+    // three other modules (windows/leave/tasks) that don't accept an exec,
+    // so it cannot run inside the transaction at all.
+    const computed = await _computeNightAsync(request.org_id, evaluated_for);
+
     const result = await audit.performAsync({
         org_id: request.org_id, actor_person_id: request.actor_person_id,
         capability: "wellbeing.publish_signal",
         audit: {action: "wellbeing.signals_evaluated", object_type: "signal_ledger_entry", object_ref: evaluated_for,
             detail: {evaluated_for, batch_tag}},
         action: async exec => {
-            const computed = await _computeNightAsync(request.org_id, evaluated_for);
             for (const entry of computed.entries) {
                 const id = _uuid();
                 await exec.runCmd(
