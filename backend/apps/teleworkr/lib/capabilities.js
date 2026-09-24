@@ -86,6 +86,7 @@ const CATALOGUE = Object.freeze({
     "user.impersonate": {label: "Impersonate a user", scopes: [SCOPES.ORG],
         step_up: true, always_audited: true, action_requires_reason: true},
     "role.assign": {label: "Assign a role", scopes: [SCOPES.ORG], always_audited: true},
+    "role.create": {label: "Create a custom role", scopes: [SCOPES.ORG], always_audited: true},
     "capability.grant": {label: "Grant a capability", scopes: [SCOPES.ORG], always_audited: true, action_requires_reason: true},
     "capability.revoke": {label: "Revoke a capability", scopes: [SCOPES.ORG], always_audited: true},
     "audit.read_own": {label: "Read audit entries about yourself", scopes: [SCOPES.SELF]},
@@ -167,6 +168,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     admin: {label: "Org admin", capabilities: [
         ["time.read_own", SCOPES.SELF], ["leave.request", SCOPES.SELF], ["role.assign", SCOPES.ORG],
+        ["role.create", SCOPES.ORG],
         ["capability.grant", SCOPES.ORG], ["capability.revoke", SCOPES.ORG], ["audit.read_all", SCOPES.ORG],
         ["audit.read_own", SCOPES.SELF], ["person_data.export", SCOPES.ORG], ["user.impersonate", SCOPES.ORG],
         ["wiki.publish_public", SCOPES.ORG], ["wellbeing.read_own", SCOPES.SELF],

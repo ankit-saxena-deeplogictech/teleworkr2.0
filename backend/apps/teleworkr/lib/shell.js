@@ -72,6 +72,8 @@ const SURFACES = Object.freeze({
         capability: "people.import"},
     audit:     {console: "Admin", label: "Audit log",   screen: "H4", order: 120, classification: CLASS.EXCLUSIVE,
         any_of: ["audit.read_all", "audit.read_policy"]},
+    permissions: {console: "Admin", label: "Permissions", screen: "L2", order: 121, classification: CLASS.EXCLUSIVE,
+        any_of: ["role.assign", "capability.grant"]},
 
     // The Assigned group (P2 item 5): training, certificates and surveys share
     // one nav group, because from a person's side all three are the same thing —
