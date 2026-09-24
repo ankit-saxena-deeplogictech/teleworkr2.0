@@ -163,6 +163,14 @@ const REGISTER = Object.freeze({
     wiki_page_task_link: {shape: SHAPES.EDGE, erasure: ERASURE.RETAIN, keep: null, anchor: ANCHORS.NONE,
         note: "A structural relation between two organisational objects, not personal data."},
 
+    // --- data governance (L3) ---
+    legal_hold: {shape: SHAPES.EDGE, erasure: ERASURE.RETAIN, keep: null, anchor: ANCHORS.NONE,
+        note: "The hold record itself is the compliance evidence — it does not erase with the person it names."},
+    data_request: {shape: SHAPES.MUTABLE, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.NONE,
+        note: "A DSAR record. Kept regardless of the subject's own erasure — the record that a request was made and how it was handled outlives the request."},
+    erasure_run: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.OCCURRED,
+        note: "The erasure audit trail — same treatment as audit_event, for the same reason: this is the record of an irreversible action, not personal data about the person it acted on."},
+
     // --- training (P1 item 8: erasure declared here, not decided in L3's queue) ---
     course_version: {shape: SHAPES.VERSIONED_POINTER, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.NONE,
         note: "Not personal data. You must be able to show what the course said when someone passed it."},

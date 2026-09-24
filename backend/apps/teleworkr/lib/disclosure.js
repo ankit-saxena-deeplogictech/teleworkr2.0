@@ -219,11 +219,20 @@ exports.exportMyDataAsync = async function(request) {
         [org_id, person_id, person_id]);
     const myComments = await dblayer.getQueryOrThrow(
         "SELECT * FROM task_comment WHERE org_id=? AND person_id=? ORDER BY created_at ASC", [org_id, person_id]);
+    const leaveRequests = await dblayer.getQueryOrThrow(
+        "SELECT * FROM leave_request WHERE org_id=? AND person_id=? ORDER BY created_at ASC", [org_id, person_id]);
+    const leaveLedger = await dblayer.getQueryOrThrow(
+        "SELECT * FROM leave_ledger_entry WHERE org_id=? AND person_id=? ORDER BY entry_date ASC", [org_id, person_id]);
+    const signalLedger = await dblayer.getQueryOrThrow(
+        "SELECT * FROM signal_ledger_entry WHERE org_id=? AND person_id=? ORDER BY evaluated_for ASC", [org_id, person_id]);
+    const wikiPages = await dblayer.getQueryOrThrow(
+        "SELECT * FROM wiki_page WHERE org_id=? AND owner_person_id=? ORDER BY created_at ASC", [org_id, person_id]);
 
     return {meta: {exported_at: _now(), org_id, person_id}, person, employments,
         working_windows: workingWindows, time_entries: timeEntries, timesheets,
         timesheet_entries: timesheetEntries, audit_entries_about_me: auditEntries,
-        tasks: myTasks, comments: myComments};
+        tasks: myTasks, comments: myComments, leave_requests: leaveRequests, leave_ledger: leaveLedger,
+        wellbeing_signals: signalLedger, wiki_pages: wikiPages};
 }
 
 exports.VIEWS = VIEWS;

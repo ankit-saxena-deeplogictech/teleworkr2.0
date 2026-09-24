@@ -74,6 +74,8 @@ const SURFACES = Object.freeze({
         any_of: ["audit.read_all", "audit.read_policy"]},
     permissions: {console: "Admin", label: "Permissions", screen: "L2", order: 121, classification: CLASS.EXCLUSIVE,
         any_of: ["role.assign", "capability.grant"]},
+    data:        {console: "Admin", label: "Data governance", screen: "L3", order: 122, classification: CLASS.EXCLUSIVE,
+        any_of: ["data.manage_requests", "data.erase"]},
 
     // The Assigned group (P2 item 5): training, certificates and surveys share
     // one nav group, because from a person's side all three are the same thing —
