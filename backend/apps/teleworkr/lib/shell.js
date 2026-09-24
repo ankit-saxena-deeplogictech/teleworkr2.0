@@ -70,6 +70,8 @@ const SURFACES = Object.freeze({
         capability: "leave_run.operate"},
     people:    {console: "Admin", label: "People & import", screen: "B5", order: 110, classification: CLASS.EXCLUSIVE,
         capability: "people.import"},
+    identity:  {console: "Admin", label: "Identity", screen: "L1", order: 111, classification: CLASS.EXCLUSIVE,
+        capability: "identity.manage"},
     audit:     {console: "Admin", label: "Audit log",   screen: "H4", order: 120, classification: CLASS.EXCLUSIVE,
         any_of: ["audit.read_all", "audit.read_policy"]},
     permissions: {console: "Admin", label: "Permissions", screen: "L2", order: 121, classification: CLASS.EXCLUSIVE,

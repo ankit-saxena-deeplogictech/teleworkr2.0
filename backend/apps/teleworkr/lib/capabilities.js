@@ -88,6 +88,7 @@ const CATALOGUE = Object.freeze({
     "wiki.write": {label: "Create and edit wiki pages", scopes: [SCOPES.ORG]},
     "user.impersonate": {label: "Impersonate a user", scopes: [SCOPES.ORG],
         step_up: true, always_audited: true, action_requires_reason: true},
+    "identity.manage": {label: "Manage identity provisioning and MFA policy", scopes: [SCOPES.ORG], always_audited: true},
     "role.assign": {label: "Assign a role", scopes: [SCOPES.ORG], always_audited: true},
     "role.create": {label: "Create a custom role", scopes: [SCOPES.ORG], always_audited: true},
     "capability.grant": {label: "Grant a capability", scopes: [SCOPES.ORG], always_audited: true, action_requires_reason: true},
@@ -172,7 +173,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     admin: {label: "Org admin", capabilities: [
         ["time.read_own", SCOPES.SELF], ["leave.request", SCOPES.SELF], ["role.assign", SCOPES.ORG],
-        ["role.create", SCOPES.ORG],
+        ["role.create", SCOPES.ORG], ["identity.manage", SCOPES.ORG],
         ["capability.grant", SCOPES.ORG], ["capability.revoke", SCOPES.ORG], ["audit.read_all", SCOPES.ORG],
         ["audit.read_own", SCOPES.SELF], ["person_data.export", SCOPES.ORG], ["user.impersonate", SCOPES.ORG],
         ["wiki.publish_public", SCOPES.ORG], ["wellbeing.read_own", SCOPES.SELF],

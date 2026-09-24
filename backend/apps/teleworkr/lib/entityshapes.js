@@ -66,6 +66,8 @@ const REGISTER = Object.freeze({
         note: "A named bundle over capability x scope. Not versioned — H4 pins the evaluated set instead."},
     role_capability: {shape: SHAPES.EDGE, erasure: ERASURE.RETAIN, keep: null, anchor: ANCHORS.NONE,
         note: "The same capability appears in several roles at different scopes; that difference is the model."},
+    identity_mfa_policy: {shape: SHAPES.MUTABLE, erasure: ERASURE.RETAIN, keep: null, anchor: ANCHORS.NONE,
+        note: "A declared policy record, not personal data — same treatment as signal_definition. This app doesn't enforce MFA itself (the IdP does); this is the governance record of what's expected per role tier."},
 
     // --- time ---
     time_entry_event: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.PSEUDONYMISE, keep: "7y", anchor: ANCHORS.PERIOD_CLOSED,

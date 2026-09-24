@@ -14,6 +14,14 @@
  *   - Org bootstrap is one transaction: org, first admin, employment, built-in
  *     roles and the admin grant all land or none do. There is no half-created org.
  *
+ * This module also carries the admin-facing half of L1: the provisioning-
+ * incomplete queue (a flagged person's employment stays withheld until an
+ * admin supplies what the assertion didn't), and a declared MFA policy per
+ * role tier. It does not model multiple identity providers — this app has
+ * exactly one real identity path (the JWT verify against tkmlogin_api, in
+ * apis/login.js) — and it does not enforce MFA itself, the IdP does; the
+ * policy here is the governance record of what's expected, not a control.
+ *
  * (C) 2026 TekMonks. All rights reserved.
  * License: See the enclosed LICENSE file.
  */
@@ -29,7 +37,28 @@ const REQUIRED_ASSERTION_ATTRIBUTES = Object.freeze(["employment_status", "juris
 /** Employment statuses are part of the schema contract, not free text. */
 const EMPLOYMENT_STATUSES = Object.freeze(["active", "probation", "notice", "suspended", "ended"]);
 
+/** What breaks without each attribute — shown next to the feature it feeds, not as an abstract field list. */
+const ATTRIBUTE_IMPACT = Object.freeze([
+    {attribute: "employment_status", breaks: "Earned-leave eligibility, probation and notice rules."},
+    {attribute: "jurisdiction", breaks: "Which working-time rules apply. Not the office address."},
+    {attribute: "manager", breaks: "Approval routes for time, leave and requisitions."},
+    {attribute: "start_date", breaks: "Pro-rata accrual and probation windows."},
+    {attribute: "contract_type", breaks: "Policy scope tags; whether guardrails apply at all."},
+    {attribute: "home_timezone", breaks: "Seeds the working window. The person can override; the IdP can't."}
+]);
+
+const MFA_TIERS = Object.freeze(["standard", "elevated", "critical"]);
+const MFA_STRENGTHS = Object.freeze(["idp_enforced", "phishing_resistant", "hardware_key"]);
+/** HR/admin's declared expectation per tier, until an org overrides one. */
+const DEFAULT_MFA_POLICY = Object.freeze({standard: "idp_enforced", elevated: "phishing_resistant", critical: "hardware_key"});
+
 const _today = _ => new Date().toISOString().substring(0, 10);
+const _now = _ => Math.floor(Date.now()/1000);
+
+/** L1's own admin screen is gated by one capability throughout — reads and writes alike. */
+async function _requireManageAsync(org_id, actor_person_id) {
+    await permissions.requireAsync({org_id, actor_person_id, capability: "identity.manage"});
+}
 
 /**
  * Creates an org with its first admin in one transaction.
@@ -169,8 +198,10 @@ exports.syncEmploymentFromAssertionAsync = async function(org_id, person_id, ass
     const open = await spine.getOpenEmploymentAsync(org_id, person_id);
     if (!open) return null;     // nothing to supersede; provisionFromAssertionAsync creates the first period
 
-    let changed = ["status", "jurisdiction", "contract_type"].some(attr =>
-        assertion[attr] && assertion[attr] != open[attr]);
+    // employment_status is the assertion's own name for the column employment stores as `status` —
+    // every other attribute here happens to share its name on both sides.
+    let changed = (assertion.employment_status && assertion.employment_status != open.status) ||
+        ["jurisdiction", "contract_type"].some(attr => assertion[attr] && assertion[attr] != open[attr]);
     if (assertion.start_date) {const valid_from = String(assertion.start_date); changed = changed || (valid_from > open.valid_from);}
 
     let manager_person_id = open.manager_person_id;
@@ -188,5 +219,170 @@ exports.syncEmploymentFromAssertionAsync = async function(org_id, person_id, ass
         valid_from: assertion.start_date || _today(), source: "idp", recorded_by: "idp"});
 }
 
+// ---------------------------------------------------------------------------
+// L1's admin screen — attribute map, provider status, MFA policy,
+// the provisioning-incomplete queue, and joiners/movers/leavers
+// ---------------------------------------------------------------------------
+
+/** The six attributes the wireframe names, each with what breaks without it and whether it's hard-required. */
+exports.attributeMap = _ => ATTRIBUTE_IMPACT.map(row => ({...row, required: REQUIRED_ASSERTION_ATTRIBUTES.includes(row.attribute)}));
+
+/**
+ * The one real identity path this app has — not a multi-provider catalogue,
+ * since no second one exists to manage. Real numbers only: whether the IdP
+ * endpoint is configured, its host, and how many current employments trace
+ * to it.
+ * @param {string} org_id The org
+ */
+exports.providerStatusAsync = async function(org_id) {
+    const total = (await dblayer.getQueryOrThrow(
+        "SELECT COUNT(*) AS c FROM employment WHERE org_id=? AND valid_to IS NULL", [org_id]))[0].c;
+    const viaIdp = (await dblayer.getQueryOrThrow(
+        "SELECT COUNT(*) AS c FROM employment WHERE org_id=? AND valid_to IS NULL AND source='idp'", [org_id]))[0].c;
+    const endpoint = TELEWORKR_CONSTANTS.CONF.tkmlogin_api || null;
+    let host = null;
+    if (endpoint) try {host = new URL(endpoint).host;} catch (err) {host = endpoint;}
+    return {configured: Boolean(endpoint), host, people_via_idp: viaIdp, people_total: total};
+}
+
+/**
+ * The declared MFA policy per role tier — a governance record, not a control
+ * this app enforces itself. Unset tiers read the default, flagged as such.
+ * @param {string} org_id The org
+ * @param {string} actor_person_id The reader
+ */
+exports.mfaPolicyAsync = async function(org_id, actor_person_id) {
+    await _requireManageAsync(org_id, actor_person_id);
+    const rows = await dblayer.getQueryOrThrow("SELECT * FROM identity_mfa_policy WHERE org_id=?", [org_id]);
+    const overrides = Object.fromEntries(rows.map(row => [row.role_tier, row]));
+    return {policy: MFA_TIERS.map(tier => ({role_tier: tier,
+        strength: overrides[tier]?.strength || DEFAULT_MFA_POLICY[tier],
+        is_default: !overrides[tier], updated_at: overrides[tier]?.updated_at || null}))};
+}
+
+/** @param {object} request {org_id, actor_person_id, role_tier, strength} */
+exports.updateMfaPolicyAsync = async function(request) {
+    if (!MFA_TIERS.includes(request.role_tier)) throw new Error(
+        `Unknown role tier ${JSON.stringify(request.role_tier)}. Known: ${MFA_TIERS.join(", ")}.`);
+    if (!MFA_STRENGTHS.includes(request.strength)) throw new Error(
+        `Unknown MFA strength ${JSON.stringify(request.strength)}. Known: ${MFA_STRENGTHS.join(", ")}.`);
+
+    return await audit.performAsync({
+        org_id: request.org_id, actor_person_id: request.actor_person_id, capability: "identity.manage",
+        audit: {action: "identity.mfa_policy_updated", object_type: "identity_mfa_policy", object_ref: request.role_tier,
+            detail: {role_tier: request.role_tier, strength: request.strength}},
+        action: async exec => {
+            await exec.runCmd(
+                `INSERT INTO identity_mfa_policy (org_id, role_tier, strength, updated_at, updated_by) VALUES (?,?,?,?,?)
+                    ON CONFLICT (org_id, role_tier) DO UPDATE SET strength=excluded.strength,
+                        updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
+                [request.org_id, request.role_tier, request.strength, _now(), request.actor_person_id]);
+            return {role_tier: request.role_tier, strength: request.strength};
+        }});
+}
+
+/**
+ * Every person currently flagged with an incomplete assertion — uncapped,
+ * with the missing attributes and when they were flagged. Same org-scoping
+ * join setup.js's own health panel already uses, since person is global and
+ * provisioning_status alone doesn't say which org's sign-in flagged it.
+ * @param {string} org_id The org
+ * @param {string} actor_person_id The reader
+ */
+exports.flaggedPeopleAsync = async function(org_id, actor_person_id) {
+    await _requireManageAsync(org_id, actor_person_id);
+    const rows = await dblayer.getQueryOrThrow(
+        `SELECT p.person_id, p.email, p.display_name, p.provisioning_status,
+            MAX(a.occurred_at) AS flagged_at
+         FROM person p JOIN audit_event a ON a.subject_person_id=p.person_id
+             AND a.org_id=? AND a.action='provisioning.incomplete'
+         WHERE p.provisioning_status IS NOT NULL
+         GROUP BY p.person_id ORDER BY flagged_at DESC`, [org_id]);
+    return {people: rows.map(row => ({...row, missing: row.provisioning_status.split(",")}))};
+}
+
+/**
+ * An admin supplies what a flagged person's assertion didn't, closing the
+ * loop provisionFromAssertionAsync opened — until now the only way to
+ * un-flag someone was a corrected IdP assertion on their next sign-in.
+ * @param {object} request {org_id, actor_person_id, person_id, employment_status,
+ *      jurisdiction, manager, start_date, contract_type}
+ */
+exports.resolveFlaggedPersonAsync = async function(request) {
+    const person = await spine.getPersonAsync(request.person_id);
+    if (!person) throw new Error(`Person ${request.person_id} was not found.`);
+    if (!person.provisioning_status) throw new Error("This person is not flagged — nothing to resolve.");
+
+    const missing = REQUIRED_ASSERTION_ATTRIBUTES.filter(attr => !request[attr]);
+    if (missing.length) throw new Error(
+        `Still missing: ${missing.join(", ")}. They are required, never defaulted.`);
+    if (!EMPLOYMENT_STATUSES.includes(request.employment_status)) throw new Error(
+        `Unknown employment status ${JSON.stringify(request.employment_status)}.`);
+    const manager = request.manager ? (await spine.getPersonByEmailAsync(request.manager))?.person_id || null : null;
+
+    // No subject_person_id on the permission check itself: ORG scope, when given a
+    // subject, requires that subject to already have an employment in force to be
+    // covered — exactly what a flagged person doesn't have yet, which is the entire
+    // reason they're being resolved. The audit entry still names them as the subject.
+    return await audit.performAsync({
+        org_id: request.org_id, actor_person_id: request.actor_person_id, capability: "identity.manage",
+        audit: {action: "identity.provisioning_resolved", object_type: "person", object_ref: request.person_id,
+            subject_person_id: request.person_id,
+            detail: {jurisdiction: request.jurisdiction, contract_type: request.contract_type}},
+        action: async exec => {
+            const employment = await spine.recordEmploymentAsync({org_id: request.org_id, person_id: request.person_id,
+                status: request.employment_status, jurisdiction: request.jurisdiction, manager_person_id: manager,
+                contract_type: request.contract_type, valid_from: request.start_date, source: "manual",
+                recorded_by: request.actor_person_id}, exec);
+            await exec.runCmd("UPDATE person SET provisioning_status=NULL WHERE person_id=?", [request.person_id]);
+            return employment;
+        }});
+}
+
+/**
+ * Joiners (dormant until a future start date, already true of the schema —
+ * getOpenEmploymentAsync finds them, employmentAsOfAsync doesn't), movers
+ * (superseded within the window, diffed against their prior period), and
+ * leavers (an open period already declaring notice/suspended/ended — real
+ * enum values nothing else in this app sets yet, so this is often empty,
+ * which is honest rather than invented).
+ * @param {string} org_id The org
+ * @param {string} actor_person_id The reader
+ * @param {object} options {days} — the mover window, default 90
+ */
+exports.joinersMoversLeaversAsync = async function(org_id, actor_person_id, options={}) {
+    await _requireManageAsync(org_id, actor_person_id);
+    const since = _now() - (options.days || 90) * 86400;
+
+    const joiners = await dblayer.getQueryOrThrow(
+        `SELECT e.*, p.display_name, p.email FROM employment e JOIN person p ON p.person_id=e.person_id
+            WHERE e.org_id=? AND e.valid_to IS NULL AND e.valid_from > ? ORDER BY e.valid_from ASC`,
+        [org_id, _today()]);
+
+    const leavers = await dblayer.getQueryOrThrow(
+        `SELECT e.*, p.display_name, p.email FROM employment e JOIN person p ON p.person_id=e.person_id
+            WHERE e.org_id=? AND e.valid_to IS NULL AND e.status IN ('notice','suspended','ended')
+            ORDER BY e.valid_from DESC`, [org_id]);
+
+    const moverCandidates = await dblayer.getQueryOrThrow(
+        `SELECT person_id, COUNT(*) AS c, MAX(recorded_at) AS latest FROM employment WHERE org_id=?
+            GROUP BY person_id HAVING c > 1 AND latest >= ? ORDER BY latest DESC`, [org_id, since]);
+    const movers = [];
+    for (const candidate of moverCandidates) {
+        const history = await spine.employmentHistoryAsync(org_id, candidate.person_id);
+        const previous = history[history.length - 2], current = history[history.length - 1];
+        const person = await spine.getPersonAsync(candidate.person_id);
+        movers.push({person_id: candidate.person_id, display_name: person?.display_name, email: person?.email,
+            effective_from: current.valid_from,
+            changes: ["jurisdiction", "manager_person_id", "contract_type", "status"]
+                .filter(field => previous[field] != current[field])
+                .map(field => ({field, from: previous[field], to: current[field]}))});
+    }
+
+    return {joiners, movers, leavers};
+}
+
 exports.REQUIRED_ASSERTION_ATTRIBUTES = REQUIRED_ASSERTION_ATTRIBUTES;
 exports.EMPLOYMENT_STATUSES = EMPLOYMENT_STATUSES;
+exports.MFA_TIERS = MFA_TIERS;
+exports.MFA_STRENGTHS = MFA_STRENGTHS;

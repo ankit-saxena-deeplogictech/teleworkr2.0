@@ -17,17 +17,34 @@ exports.initSync = _ => login.addLoginListener(`${TELEWORKR_CONSTANTS.LIBDIR}/lo
 /**
  * Provisions the signed-in person from their assertion where they have no
  * employment yet, and reads jurisdiction and manager from the record in force —
- * not from the assertion each caller happens to hold.
+ * not from the assertion each caller happens to hold. Where an employment was
+ * already open, also checks the assertion for drift and supersedes the period
+ * if something real changed (a mover) — a snapshot is taken before
+ * provisionFromAssertionAsync overwrites result's fields with the record's own
+ * values, since that overwrite is what the mover check needs to compare against.
+ * A mover-sync failure never fails the sign-in itself.
  * @param {object} result The login result, modified in place
  * @returns true if an employment is in force for this sign-in, false otherwise
  */
 exports.employmentInjector = async function(result) {
     if (!result.tokenflag) return false;
 
+    const assertionSnapshot = {employment_status: result.employment_status, jurisdiction: result.jurisdiction,
+        contract_type: result.contract_type, manager: result.manager, start_date: result.start_date};
+
+    let provisioned;
     try {
-        return await identity.provisionFromAssertionAsync(result);
+        provisioned = await identity.provisionFromAssertionAsync(result);
     } catch (err) {
         LOG.error(`Error resolving employment for ${result.id} in ${result.org}: ${err}`);
         return false;
     }
+
+    if (provisioned) try {
+        await identity.syncEmploymentFromAssertionAsync((result.org||"").toLowerCase(), result.person_id, assertionSnapshot);
+    } catch (err) {
+        LOG.error(`Mover sync failed for ${result.id} in ${result.org}: ${err}`);
+    }
+
+    return provisioned;
 }
