@@ -112,6 +112,14 @@ const SURFACES = Object.freeze({
     wellbeing: {console: "Me", label: "Wellbeing", screen: "M2", order: 75, classification: CLASS.SHARED,
         capability: "wellbeing.read_own"},
 
+    // Sessions & security (L4): everyone sees their own sessions
+    // (session.read_own, every built-in role but guest holds it);
+    // Detection/Incidents only appear inside the screen for whoever
+    // also holds session.manage/incident.manage. Same "console differs
+    // by entry point, never by screen identity" reasoning as wellbeing.
+    security: {console: "Me", label: "Sessions & security", screen: "L4", order: 76, classification: CLASS.SHARED,
+        capability: "session.read_own"},
+
     // Wiki (N): its own console, the same way "Leave" and "Assigned" exist
     // for their sections — TABS is a frozen 5-slot header (day/tasks/
     // calendar/timeline/team), so this cannot be a bare tab.

@@ -128,6 +128,7 @@ async function _testPreviewBaseline(w) {
     _check("task_watcher (she watches bob's task) is erasable", erasedNames.includes("task_watcher"), JSON.stringify(preview.erased));
     _check("wiki_space_member (she owns her space) is erasable", erasedNames.includes("wiki_space_member"), JSON.stringify(preview.erased));
     _check("signal_ledger_entry is erasable", erasedNames.includes("signal_ledger_entry"), JSON.stringify(preview.erased));
+    _check("session (the device list) is erasable", erasedNames.includes("session"), JSON.stringify(preview.erased));
 
     const taskErased = preview.erased.find(e => e.entity == "task");
     _check("the no-participant task is erasable, count 1", taskErased?.count == 1, JSON.stringify(taskErased));
@@ -200,6 +201,8 @@ async function _testExecute(w) {
     _check("wiki_space_member rows are gone", members.length == 0, JSON.stringify(members));
     const ledger = await dblayer.getQueryOrThrow("SELECT * FROM signal_ledger_entry WHERE org_id=? AND person_id=?", [w.org_id, w.alice]);
     _check("signal_ledger_entry rows are gone", ledger.length == 0, JSON.stringify(ledger));
+    const sessionRows = await dblayer.getQueryOrThrow("SELECT * FROM session WHERE org_id=? AND person_id=?", [w.org_id, w.alice]);
+    _check("session rows (the device list) are gone", sessionRows.length == 0, JSON.stringify(sessionRows));
 
     const t1Row = await dblayer.getQueryOrThrow("SELECT * FROM task WHERE task_id=?", [w.t1.task_id]);
     _check("the no-participant task is deleted", t1Row.length == 0, JSON.stringify(t1Row));
@@ -291,13 +294,20 @@ async function _seedData(w) {
     // task_watcher — alice watches a task she neither created nor owns
     w.t3 = await tasks.createTaskAsync({org_id: w.org_id, actor_person_id: w.bob, title: `Bob's task, alice watches ${w.stamp}`});
     await tasks.addWatcherAsync({org_id: w.org_id, actor_person_id: w.alice, task_ref: w.t3.task_ref});
+
+    // session (L4) — the "device list" the wireframe's own erasure preview names
+    w.sessionId = `ses-${w.stamp}`;
+    await dblayer.runCmdOrThrow(
+        `INSERT INTO session (session_id, org_id, person_id, ip, user_agent, device_label,
+            first_seen_for_person, signed_in_at, last_seen_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+        [w.sessionId, w.org_id, w.alice, "10.0.0.1", "Mozilla/5.0 Chrome/120", "Chrome · Windows", 1, _now(), _now()]);
 }
 
 async function _cleanup(w) {
     if (!w?.org_id) return;
     for (const table of ["audit_event", "capability_grant", "role_capability", "role", "employment",
         "task_watcher", "task_comment", "task_event", "task", "wiki_space_member", "wiki_page", "wiki_space",
-        "leave_request", "leave_ledger_entry", "signal_ledger_entry", "legal_hold", "data_request", "erasure_run"])
+        "leave_request", "leave_ledger_entry", "signal_ledger_entry", "session", "legal_hold", "data_request", "erasure_run"])
         await dblayer.runCmdBestEffortAsync(`DELETE FROM ${table} WHERE org_id=?`, [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM org WHERE org_id=?", [w.org_id]);
     for (const who of ["alice", "bob", "carol", "dave"])

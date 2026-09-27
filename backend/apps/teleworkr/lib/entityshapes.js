@@ -173,6 +173,14 @@ const REGISTER = Object.freeze({
     erasure_run: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.OCCURRED,
         note: "The erasure audit trail — same treatment as audit_event, for the same reason: this is the record of an irreversible action, not personal data about the person it acted on."},
 
+    // --- security (L4) ---
+    session: {shape: SHAPES.MUTABLE, erasure: ERASURE.ERASE, keep: "90d", anchor: ANCHORS.NONE,
+        note: "The device list L3's own erasure preview already names as erased outright."},
+    security_incident: {shape: SHAPES.MUTABLE, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.OCCURRED,
+        note: "A security record, not personal data about the people it names."},
+    security_incident_action: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.OCCURRED,
+        note: "The incident's timeline — same treatment as audit_event, for the same reason: exportable evidence, not personal data."},
+
     // --- training (P1 item 8: erasure declared here, not decided in L3's queue) ---
     course_version: {shape: SHAPES.VERSIONED_POINTER, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.NONE,
         note: "Not personal data. You must be able to show what the course said when someone passed it."},

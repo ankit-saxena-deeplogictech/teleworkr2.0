@@ -11,14 +11,15 @@
 const serverutils = require(`${CONSTANTS.LIBDIR}/utils.js`);
 const httpClient = require(`${CONSTANTS.LIBDIR}/httpClient.js`);
 const dblayer = require(`${TELEWORKR_CONSTANTS.LIBDIR}/dblayer.js`);
+const sessions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/sessions.js`);
 
 const LOGIN_LISTENERS_MEMORY_KEY = "__org_monkshu_teleworkr_login_listeners";
 
-exports.doService = async jsonReq => {
+exports.doService = async (jsonReq, servObject) => {
 	if (!validateRequest(jsonReq)) {LOG.error("Validation failure."); return CONSTANTS.FALSE_RESULT;}
 
     if (jsonReq.op == "getotk") return _getOTK(jsonReq);
-    else if (jsonReq.op == "verify") return await _verifyJWT(jsonReq);
+    else if (jsonReq.op == "verify") return await _verifyJWT(jsonReq, servObject);
     else return CONSTANTS.FALSE_RESULT;
 }
 
@@ -55,7 +56,7 @@ function _getOTK(_jsonReq) {
     return {...CONSTANTS.TRUE_RESULT, otk: serverutils.generateUUID(false)};
 }
 
-async function _verifyJWT(jsonReq) {
+async function _verifyJWT(jsonReq, servObject) {
     let tokenValidationResult; try {
         tokenValidationResult = await httpClient.fetch(`${TELEWORKR_CONSTANTS.CONF.tkmlogin_api}?jwt=${jsonReq.jwt}`);
     } catch (err) {
@@ -81,8 +82,21 @@ async function _verifyJWT(jsonReq) {
         const _decodeBase64 = string => Buffer.from(string, "base64").toString("utf8");
         const jwtClaims = JSON.parse(_decodeBase64(jsonReq.jwt.split(".")[1]));
         const finalResult = {...jwtClaims, org: jwtClaims.org.toLowerCase(), role: jwtClaims.role,
-			...CONSTANTS.TRUE_RESULT, tokenflag: true};
+			...CONSTANTS.TRUE_RESULT, tokenflag: true,
+			remote_ip: servObject?.env?.remoteHost || null, remote_agent: servObject?.env?.remoteAgent || null};
 		await _informLoginListeners(finalResult);
+
+		// L4: a session is recorded whenever we can attribute one to a person,
+		// regardless of _informLoginListeners' own true/false — employmentInjector
+		// returning false (an incomplete assertion) must not silently skip this;
+		// that's arguably the case where a session record matters most.
+		if (finalResult.person_id) try {
+			const recorded = await sessions.recordSignInAsync({org_id: finalResult.org, person_id: finalResult.person_id,
+				ip: finalResult.remote_ip, user_agent: finalResult.remote_agent});
+			finalResult.session_id = recorded.session_id;
+		} catch (err) {LOG.error(`Session recording failed for ${finalResult.id} in ${finalResult.org}: ${err}`);}
+		delete finalResult.remote_ip; delete finalResult.remote_agent;
+
         return finalResult;
     } catch (err) {
         LOG.error(`Bad JWT token passed for login ${jsonReq.jwt}, validation succeeded but decode failed. Error is ${err}`);

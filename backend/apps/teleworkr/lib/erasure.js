@@ -57,7 +57,8 @@ const CURATED_ERASE = Object.freeze([
     {entity: "course_progress_event", columns: ["person_id"]},
     {entity: "survey_invitation", columns: ["person_id"]},
     {entity: "notification", columns: ["recipient_person_id"]},
-    {entity: "notification_setting", columns: ["person_id"]}
+    {entity: "notification_setting", columns: ["person_id"]},
+    {entity: "session", columns: ["person_id"]}
 ]);
 
 /** Most PSEUDONYMISE-declared tables use person_id; these name the person differently. */
