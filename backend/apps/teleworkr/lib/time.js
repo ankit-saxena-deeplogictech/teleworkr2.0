@@ -30,6 +30,7 @@ const serverutils = require(`${CONSTANTS.LIBDIR}/utils.js`);
 const dblayer = require(`${TELEWORKR_CONSTANTS.LIBDIR}/dblayer.js`);
 const permissions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/permissions.js`);
 const audit = require(`${TELEWORKR_CONSTANTS.LIBDIR}/audit.js`);
+const spine = require(`${TELEWORKR_CONSTANTS.LIBDIR}/spine.js`);
 
 const SOURCES = Object.freeze(["timer", "manual", "reconstructed", "calendar"]);
 const STATUS = Object.freeze({OPEN: "open", SUBMITTED: "submitted", RETURNED: "returned",
@@ -331,6 +332,70 @@ exports.timesheetForApproverAsync = async function(org_id, actor_person_id, subj
     delete totals.by_task_start_times;    // defensive: this shape never carries per-entry times
     return {timesheet: timesheet && {...timesheet, unlocked_dates: undefined, submitted_by: undefined},
         totals};
+}
+
+/**
+ * The C7 queue: every direct report's submitted week still waiting on this
+ * actor. `permissions.checkAsync`'s DIRECT_REPORTS scope needs an explicit
+ * subject to resolve at all, so this walks the org chart first rather than
+ * asking the permission engine for a list it cannot produce — the same
+ * existence check `wellbeing.js`'s `teamLoadAsync` already established for
+ * exactly this shape (a cohort, not a single subject).
+ *
+ * @param {string} org_id The org
+ * @param {string} actor_person_id The approver
+ * @param {string} asOf ISO date, defaults to today — who counts as a direct report
+ * @returns {array} [{person_id, timesheet_id, week_start, week_end, submitted_at,
+ *      total_seconds, reconstructed_count}]
+ * @throws If the actor holds no timesheet.approve grant at all
+ */
+exports.pendingApprovalsForAsync = async function(org_id, actor_person_id, asOf) {
+    const grants = await permissions.activeGrantsAsync(org_id, actor_person_id, {capability: "timesheet.approve"});
+    if (!grants.length) throw new Error("timesheet.approve is required to read the approval queue.");
+
+    const reports = await spine.directReportsAsOfAsync(org_id, actor_person_id, asOf || _today());
+    const queue = [];
+    for (const report of reports) {
+        const submitted = await dblayer.getQueryOrThrow(
+            "SELECT * FROM timesheet WHERE org_id=? AND person_id=? AND status=? ORDER BY week_start",
+            [org_id, report.person_id, STATUS.SUBMITTED]);
+        for (const sheet of submitted) {
+            const events = await _eventsForWeekViaAsync(null, org_id, report.person_id, sheet.week_start);
+            const totals = _summarise(events, _now());
+            queue.push({person_id: report.person_id, timesheet_id: sheet.timesheet_id,
+                week_start: sheet.week_start, week_end: sheet.week_end, submitted_at: sheet.submitted_at,
+                total_seconds: totals.total_seconds, reconstructed_count: totals.reconstructed_count});
+        }
+    }
+    return queue;
+}
+
+/**
+ * The C7 "not yet submitted" list: direct reports with no submitted (or
+ * later) week on record for the given week — a missing row is neither a
+ * decision waiting nor a closed one.
+ *
+ * @param {string} org_id The org
+ * @param {string} actor_person_id The approver
+ * @param {string} week_start ISO date inside the week, defaults to today
+ * @param {string} asOf ISO date, defaults to today — who counts as a direct report
+ * @returns {array} [{person_id, week_start, week_end}]
+ * @throws If the actor holds no timesheet.approve grant at all
+ */
+exports.missingSubmissionsForAsync = async function(org_id, actor_person_id, week_start, asOf) {
+    const grants = await permissions.activeGrantsAsync(org_id, actor_person_id, {capability: "timesheet.approve"});
+    if (!grants.length) throw new Error("timesheet.approve is required to read the approval queue.");
+
+    const weekStart = exports.weekStartOf(week_start || _today());
+    const weekEnd = _weekEndOf(weekStart);
+    const reports = await spine.directReportsAsOfAsync(org_id, actor_person_id, asOf || _today());
+    const missing = [];
+    for (const report of reports) {
+        const sheet = await _timesheetAsync(null, org_id, report.person_id, weekStart);
+        if (!sheet || [STATUS.OPEN, STATUS.RETURNED].includes(sheet.status))
+            missing.push({person_id: report.person_id, week_start: weekStart, week_end: weekEnd});
+    }
+    return missing;
 }
 
 /**

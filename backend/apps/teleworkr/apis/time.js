@@ -11,6 +11,10 @@
  *  op - read_other  - Another person's week, at the caller's read level
  *  op - return      - Returns a submitted week, with a reason and unlocked dates
  *  op - approve     - Approves a submitted week, as a signature
+ *  op - pending     - C7: the caller's direct reports' submitted weeks
+ *  op - missing     - C7: the caller's direct reports with nothing submitted for a week
+ *  op - approve_many - C7: approves several weeks, each its own signature
+ *  op - return_many  - C7: returns several weeks with one shared reason
  *
  * (C) 2026 TekMonks. All rights reserved.
  */
@@ -75,6 +79,40 @@ const _dispatch = async jsonReq => {
                 subject_person_id: jsonReq.subject_person_id, week_start: jsonReq.week_start});
             return CONSTANTS.TRUE_RESULT;
         }
+        case "pending": {
+            const queue = await time.pendingApprovalsForAsync(jsonReq.org, actor.person_id, jsonReq.as_of);
+            return {...CONSTANTS.TRUE_RESULT, queue};
+        }
+        case "missing": {
+            const missing = await time.missingSubmissionsForAsync(jsonReq.org, actor.person_id,
+                jsonReq.week_start, jsonReq.as_of);
+            return {...CONSTANTS.TRUE_RESULT, missing};
+        }
+        case "approve_many": {
+            if (!Array.isArray(jsonReq.items)) return CONSTANTS.FALSE_RESULT;
+            const succeeded = [], failed = [];
+            for (const item of jsonReq.items) try {
+                await time.approveTimesheetAsync({org_id: jsonReq.org, actor_person_id: actor.person_id,
+                    subject_person_id: item.subject_person_id, week_start: item.week_start});
+                succeeded.push(item);
+            } catch (err) {failed.push({...item, reason: err.message});}
+            return {...CONSTANTS.TRUE_RESULT, succeeded, failed};
+        }
+        case "return_many": {
+            if (!Array.isArray(jsonReq.items)) return CONSTANTS.FALSE_RESULT;
+            const succeeded = [], failed = [];
+            for (const item of jsonReq.items) try {
+                // Each item's own week, whole, unless it names its own dates — a
+                // shared unlock_dates array can't mean the same thing across items
+                // whose weeks differ, so bulk return defaults to coarse: the whole
+                // week, per item, not the single-item op's granular per-date unlock.
+                await time.returnTimesheetAsync({org_id: jsonReq.org, actor_person_id: actor.person_id,
+                    subject_person_id: item.subject_person_id, week_start: item.week_start,
+                    reason: jsonReq.reason, unlock_dates: item.unlock_dates || _weekDates(item.week_start)});
+                succeeded.push(item);
+            } catch (err) {failed.push({...item, reason: err.message});}
+            return {...CONSTANTS.TRUE_RESULT, succeeded, failed};
+        }
         default: return CONSTANTS.FALSE_RESULT;
     }
 }
@@ -86,5 +124,15 @@ const _actorAsync = async jsonReq => {
     return person;
 }
 
-const validateRequest = jsonReq => jsonReq && ["record", "day", "week", "edit", "submit", "read_other", "return", "approve"]
-    .includes(jsonReq.op) && jsonReq.id && jsonReq.org;
+const validateRequest = jsonReq => jsonReq && ["record", "day", "week", "edit", "submit", "read_other", "return",
+    "approve", "pending", "missing", "approve_many", "return_many"].includes(jsonReq.op) && jsonReq.id && jsonReq.org;
+
+/** The week's seven ISO dates, Monday first — return_many's whole-week default. */
+const _weekDates = weekStart => {
+    const dates = [];
+    for (let i = 0; i < 7; i++) {
+        const d = new Date(`${weekStart}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + i);
+        dates.push(d.toISOString().substring(0, 10));
+    }
+    return dates;
+}

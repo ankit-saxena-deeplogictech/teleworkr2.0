@@ -49,6 +49,8 @@ const CATALOGUE = Object.freeze({
         channels: ["in_app"], timing: "weekly_max1", breaks_window: false, mutable: true},
     task_assigned: {label: "Task assigned to you", reaches: "assignee",
         channels: ["brief"], timing: "next_window_open", breaks_window: false, mutable: true},
+    timesheet_reminder: {label: "Your timesheet needs submitting", reaches: "person",
+        channels: ["in_app"], timing: "immediate", breaks_window: false, mutable: true},
     comment_mention: {label: "Comment, mention, wiki change", reaches: "watchers",
         channels: ["brief"], timing: "batched", breaks_window: false, mutable: true}
 });

@@ -14,6 +14,7 @@ const dblayer = require(`${TELEWORKR_CONSTANTS.LIBDIR}/dblayer.js`);
 const permissions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/permissions.js`);
 const time = require(`${TELEWORKR_CONSTANTS.LIBDIR}/time.js`);
 const timeapi = require(`${TELEWORKR_CONSTANTS.APIDIR}/time.js`);
+const notifications = require(`${TELEWORKR_CONSTANTS.LIBDIR}/notifications.js`);
 
 const BASE = 1750000000;    // unix seconds for fixed test instants
 const W0 = "2026-06-08";    // ledger week
@@ -48,6 +49,7 @@ exports.runTestsAsync = async function(argv) {
         await _testEditTrail(w);
         await _testWeekLoop(w);
         await _testApproverRead(w);
+        await _testApprovalQueue(w);
         await _testOtherPersonEdit(w);
         await _testAPI(w);
     } catch (err) {
@@ -291,6 +293,113 @@ async function _testApproverRead(w) {
 }
 
 // ---------------------------------------------------------------------------
+// the C7 approval queue
+// ---------------------------------------------------------------------------
+
+async function _testApprovalQueue(w) {
+    LOG.console("\n the C7 approval queue\n");
+    const Q1 = "2026-07-06", Q2 = "2026-07-13";   // fresh Mondays, unused by any other test
+
+    const frank = await spine.createPersonAsync(
+        {display_name: "frank", email: `frank.${Date.now()}@example.invalid`});
+    await spine.recordEmploymentAsync({org_id: w.org_id, person_id: frank.person_id, status: "active",
+        jurisdiction: "GB", manager_person_id: w.bob, contract_type: "employee",
+        valid_from: "2026-01-01", source: "manual"});
+
+    await time.recordEventAsync({org_id: w.org_id, person_id: w.alice, client_event_id: "q-alice-1",
+        entry_date: Q1, task_ref: "TASK-Q", duration_seconds: 7200});
+    await time.submitTimesheetAsync({org_id: w.org_id, person_id: w.alice, week_start: Q1});
+
+    await time.recordEventAsync({org_id: w.org_id, person_id: frank.person_id, client_event_id: "q-frank-1",
+        entry_date: Q1, task_ref: "TASK-Q", duration_seconds: 3600, reconstructed: true,
+        source: "reconstructed", signal: JSON.stringify({type: "calendar", name: "sync"})});
+    await time.submitTimesheetAsync({org_id: w.org_id, person_id: frank.person_id, week_start: Q1});
+
+    const queue = await time.pendingApprovalsForAsync(w.org_id, w.bob);
+    _check("the queue names both direct reports' submitted weeks",
+        queue.some(row => row.person_id == w.alice && row.week_start == Q1) &&
+        queue.some(row => row.person_id == frank.person_id && row.week_start == Q1),
+        JSON.stringify(queue));
+    _check("the queue carries totals and the reconstructed count",
+        queue.find(row => row.person_id == frank.person_id).reconstructed_count == 1 &&
+        queue.find(row => row.person_id == w.alice).total_seconds == 7200);
+    _check("someone outside bob's reporting line never appears in bob's queue",
+        !queue.some(row => row.person_id == w.carol || row.person_id == w.dave));
+
+    const carolQueue = await time.pendingApprovalsForAsync(w.org_id, w.carol);
+    _check("HR holds timesheet.approve but has no direct reports here, so its queue is empty, not refused",
+        Array.isArray(carolQueue) && carolQueue.length == 0);
+
+    await _checkThrows("an actor with no timesheet.approve grant is refused the queue outright", _ =>
+        time.pendingApprovalsForAsync(w.org_id, w.erin));
+
+    await time.approveTimesheetAsync({org_id: w.org_id, actor_person_id: w.bob,
+        subject_person_id: w.alice, week_start: Q1});
+    const afterApproval = await time.pendingApprovalsForAsync(w.org_id, w.bob);
+    _check("approving a week removes it from the queue, leaving the other report's",
+        !afterApproval.some(row => row.person_id == w.alice && row.week_start == Q1) &&
+        afterApproval.some(row => row.person_id == frank.person_id && row.week_start == Q1));
+
+    const missing = await time.missingSubmissionsForAsync(w.org_id, w.bob, Q2);
+    _check("both direct reports are missing for a week neither has touched",
+        missing.some(row => row.person_id == w.alice) && missing.some(row => row.person_id == frank.person_id));
+
+    await time.recordEventAsync({org_id: w.org_id, person_id: w.alice, client_event_id: "q2-alice-1",
+        entry_date: Q2, task_ref: "TASK-Q", duration_seconds: 1800});
+    await time.submitTimesheetAsync({org_id: w.org_id, person_id: w.alice, week_start: Q2});
+    const missingAfterSubmit = await time.missingSubmissionsForAsync(w.org_id, w.bob, Q2);
+    _check("submitting clears a person from the missing list, leaving the other",
+        !missingAfterSubmit.some(row => row.person_id == w.alice) &&
+        missingAfterSubmit.some(row => row.person_id == frank.person_id));
+
+    const nudge = await notifications.notifyAsync({org_id: w.org_id, category: "timesheet_reminder",
+        recipient_person_id: frank.person_id, actor_person_id: w.bob,
+        payload: {week_start: Q2}, object_ref: Q2});
+    _check("the new timesheet_reminder category raises a real, durable notification",
+        Boolean(nudge.notification_id) && ["delivered", "digest", "brief", "muted"].includes(nudge.status),
+        JSON.stringify(nudge));
+
+    // the API surface — the bulk ops, and the two read ops as the API layer exposes them
+    const bobEmail = (await dblayer.getQueryOrThrow(
+        "SELECT email FROM person WHERE person_id=?", [w.bob]))[0].email;
+
+    const Q3 = "2026-07-20";
+    await time.recordEventAsync({org_id: w.org_id, person_id: frank.person_id, client_event_id: "q3-frank-1",
+        entry_date: Q3, task_ref: "TASK-Q", duration_seconds: 3600});
+    await time.submitTimesheetAsync({org_id: w.org_id, person_id: frank.person_id, week_start: Q3});
+
+    const pendingApi = await timeapi.doService({op: "pending", id: bobEmail, org: w.org_id});
+    _check("op pending answers true with the queue", pendingApi.result === true &&
+        pendingApi.queue.some(row => row.person_id == frank.person_id && row.week_start == Q3));
+
+    const missingApi = await timeapi.doService({op: "missing", id: bobEmail, org: w.org_id, week_start: Q3});
+    _check("op missing names whoever has not touched that week",
+        missingApi.result === true && missingApi.missing.some(row => row.person_id == w.alice));
+
+    const approveMany = await timeapi.doService({op: "approve_many", id: bobEmail, org: w.org_id,
+        items: [{subject_person_id: frank.person_id, week_start: Q3}, {subject_person_id: w.carol, week_start: Q3}]});
+    _check("op approve_many approves the real one and reports the other's refusal, not an all-or-nothing failure",
+        approveMany.result === true &&
+        approveMany.succeeded.some(item => item.subject_person_id == frank.person_id) &&
+        approveMany.failed.some(item => item.subject_person_id == w.carol),
+        JSON.stringify(approveMany));
+
+    const Q4 = "2026-07-27";
+    await time.recordEventAsync({org_id: w.org_id, person_id: frank.person_id, client_event_id: "q4-frank-1",
+        entry_date: Q4, task_ref: "TASK-Q", duration_seconds: 1800});
+    await time.submitTimesheetAsync({org_id: w.org_id, person_id: frank.person_id, week_start: Q4});
+    const returnMany = await timeapi.doService({op: "return_many", id: bobEmail, org: w.org_id,
+        items: [{subject_person_id: frank.person_id, week_start: Q4}], reason: "needs task codes"});
+    _check("op return_many returns the named week and reports no failures",
+        returnMany.result === true && returnMany.succeeded.length == 1 && returnMany.failed.length == 0);
+    const returnedSheet = await time.timesheetForOwnerAsync(w.org_id, frank.person_id, Q4);
+    _check("the bulk return pins the one shared reason on the record",
+        returnedSheet.timesheet.status == "returned" && returnedSheet.timesheet.return_reason == "needs task codes");
+
+    await dblayer.runCmdBestEffortAsync("DELETE FROM person WHERE person_id=?", [frank.person_id]);
+}
+
+// ---------------------------------------------------------------------------
 // the HR correction power
 // ---------------------------------------------------------------------------
 
@@ -384,6 +493,7 @@ async function _cleanup(w) {
     await dblayer.runCmdBestEffortAsync("DELETE FROM timesheet_entry WHERE org_id=?", [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM time_entry_event WHERE org_id=?", [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM timesheet WHERE org_id=?", [w.org_id]);
+    await dblayer.runCmdBestEffortAsync("DELETE FROM notification WHERE org_id=?", [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM audit_event WHERE org_id=?", [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM role_capability WHERE org_id=?", [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM role WHERE org_id=?", [w.org_id]);
