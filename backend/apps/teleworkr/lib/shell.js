@@ -72,8 +72,13 @@ const SURFACES = Object.freeze({
         capability: "people.import"},
     identity:  {console: "Admin", label: "Identity", screen: "L1", order: 111, classification: CLASS.EXCLUSIVE,
         capability: "identity.manage"},
-    audit:     {console: "Admin", label: "Audit log",   screen: "H4", order: 120, classification: CLASS.EXCLUSIVE,
-        any_of: ["audit.read_all", "audit.read_policy"]},
+    // H4: everyone sees their own entries (audit.read_own — every built-in
+    // role including guest holds it); the fuller org-wide/policy log only
+    // renders inside the same screen for whoever also holds audit.read_all/
+    // audit.read_policy. Same "console differs by entry point, never by
+    // screen identity" reasoning as wellbeing/security.
+    audit:     {console: "Me", label: "Audit log",   screen: "H4", order: 120, classification: CLASS.SHARED,
+        capability: "audit.read_own"},
     permissions: {console: "Admin", label: "Permissions", screen: "L2", order: 121, classification: CLASS.EXCLUSIVE,
         any_of: ["role.assign", "capability.grant"]},
     data:        {console: "Admin", label: "Data governance", screen: "L3", order: 122, classification: CLASS.EXCLUSIVE,

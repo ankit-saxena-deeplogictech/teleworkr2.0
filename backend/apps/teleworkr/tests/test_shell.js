@@ -116,7 +116,7 @@ async function _testProjection(w) {
     _check("the leave console is not a tab",
         hr.consoles.some(g => g.surfaces.some(s => s.id == "policy")));
     _check("an employee does not see approvals", !_ids(employee).includes("approvals"));
-    _check("an employee does not see the audit log", !_ids(employee).includes("audit"));
+    _check("an employee sees the audit log — everyone sees their own entries (H4)", _ids(employee).includes("audit"));
     _check("an employee does not see people and import", !_ids(employee).includes("people"));
 
     _check("a lead sees approvals", _ids(lead).includes("approvals"));
@@ -181,12 +181,21 @@ async function _testProjection(w) {
 async function _testHidingIsNotAuthorization(w) {
     LOG.console("\n hiding is a courtesy, the refusal is the control\n");
     const employee = await shell.projectAsync({org_id: w.org_id, person_id: w.alice, asOf: TODAY});
-    _check("the audit surface is hidden from the employee", !_ids(employee).includes("audit"));
+    _check("the people & import surface is hidden from the employee", !_ids(employee).includes("people"));
 
     const decision = await permissions.checkAsync({org_id: w.org_id, actor_person_id: w.alice,
-        capability: "audit.read_all", asOf: TODAY});
+        capability: "people.import", asOf: TODAY});
     _check("and calling it anyway is still refused by the engine",
         !decision.allowed, decision.outcome);
+
+    // the audit surface itself is now visible to everyone (H4: own entries) — the
+    // narrower org-wide capability inside that same screen is still refused, exactly
+    // the shared-surface/capability-gated-region shape wellbeing and security use
+    _check("the audit surface is visible to the employee — their own entries", _ids(employee).includes("audit"));
+    const auditAllDecision = await permissions.checkAsync({org_id: w.org_id, actor_person_id: w.alice,
+        capability: "audit.read_all", asOf: TODAY});
+    _check("but the org-wide audit capability inside that same screen is still refused",
+        !auditAllDecision.allowed, auditAllDecision.outcome);
 
     const leadDecision = await permissions.checkAsync({org_id: w.org_id, actor_person_id: w.bob,
         capability: "timesheet.approve", subject_person_id: w.carol, asOf: TODAY});

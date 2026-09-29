@@ -260,7 +260,9 @@ const _hashOf = row => crypto.createHash("sha256").update([
  * and policy categories; audit.read_own sees entries about the caller and the
  * caller's own entries with no subject.
  *
- * @param {object} request {org_id, actor_person_id, subject_person_id, object_type, action, from, to, limit}
+ * @param {object} request {org_id, actor_person_id, subject_person_id, object_type, action, category, from, to, limit}
+ *      category is one of CATEGORIES' own names (policy/approval/time/permission/export/access/deletion) —
+ *      the same test() functions HR_VISIBLE already applies for the policy level, reused rather than duplicated
  * @returns The entries, newest first
  * @throws With err.decision set, when no read capability is in force
  */
@@ -268,6 +270,8 @@ exports.queryAsync = async function(request) {
     const {org_id, actor_person_id} = request;
     if (!org_id) throw new Error("An audit query needs an org_id.");
     if (!actor_person_id) throw new Error("An audit query needs an actor_person_id. A service reader holds grants under its own identity.");
+    if (request.category && !CATEGORIES[request.category]) throw new Error(
+        `Unknown category ${JSON.stringify(request.category)}. Known: ${Object.keys(CATEGORIES).join(", ")}.`);
 
     const readAll = await permissions.checkAsync({org_id, actor_person_id, capability: "audit.read_all"});
     let level;
@@ -296,6 +300,7 @@ exports.queryAsync = async function(request) {
 
     let rows = await dblayer.getQueryOrThrow(sql, params);
     if (level == "policy") rows = rows.filter(row => HR_VISIBLE(row.action));
+    if (request.category) rows = rows.filter(row => CATEGORIES[request.category].test(row.action));
     if (request.limit) rows = rows.slice(0, request.limit);
     return rows;
 }

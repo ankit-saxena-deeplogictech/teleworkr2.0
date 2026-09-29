@@ -24,6 +24,7 @@
     "/apps/{{app}}/wellbeing" : "/apis/wellbeing.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/wiki" : "/apis/wiki.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/access" : "/apis/access.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
+    "/apps/{{app}}/audit" : "/apis/audit.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/data" : "/apis/data.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/identity" : "/apis/identity.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/security" : "/apis/security.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",

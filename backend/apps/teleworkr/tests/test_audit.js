@@ -16,6 +16,7 @@ const permissions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/permissions.js`);
 const capabilities = require(`${TELEWORKR_CONSTANTS.LIBDIR}/capabilities.js`);
 const audit = require(`${TELEWORKR_CONSTANTS.LIBDIR}/audit.js`);
 const entityshapes = require(`${TELEWORKR_CONSTANTS.LIBDIR}/entityshapes.js`);
+const auditapi = require(`${TELEWORKR_CONSTANTS.APIDIR}/audit.js`);
 
 const {SCOPES} = capabilities;
 const SCRATCH = "audit_test_scratch";
@@ -50,7 +51,9 @@ exports.runTestsAsync = async function(argv) {
         await _testPerform(worlds.main);
         worlds.read = await _buildReadWorld(worlds.main);
         await _testReadLevels(worlds.read);
+        await _testCategoryFilter(worlds.read);
         await _testCoverage();
+        await _testAuditApiGating(worlds.read);
     } catch (err) {
         failed++; LOG.console(`  FAIL  audit tests threw: ${err}\n`); LOG.error(`Audit tests threw: ${err.stack}`);
     } finally {
@@ -324,6 +327,41 @@ async function _testReadLevels(w) {
     await permissions.revokeAsync(deny.grant_id);
     _check("revoking the deny restores the full read",
         (await audit.queryAsync({org_id: w.org_id, actor_person_id: w.dave})).length == 6);
+}
+
+/** H4: the category filter reuses CATEGORIES' own test() functions — HR_VISIBLE's exact machinery, not a duplicate. */
+async function _testCategoryFilter(w) {
+    LOG.console("\n the category filter\n");
+    const approvalOnly = await audit.queryAsync({org_id: w.org_id, actor_person_id: w.dave, category: "approval"});
+    _check("filtering by category returns only that category's actions",
+        approvalOnly.length == 1 && approvalOnly[0].action == "timesheet.approved",
+        JSON.stringify(approvalOnly.map(r => r.action)));
+
+    const exportOnly = await audit.queryAsync({org_id: w.org_id, actor_person_id: w.dave, category: "export"});
+    _check("and works for every published category, not just the common ones",
+        exportOnly.length == 1 && exportOnly[0].action == "timesheet.exported", JSON.stringify(exportOnly.map(r => r.action)));
+
+    await _checkThrows("an unknown category name is refused, not silently ignored", _ =>
+        audit.queryAsync({org_id: w.org_id, actor_person_id: w.dave, category: "not-a-real-category"}));
+}
+
+/**
+ * H4: apis/audit.js's verify_integrity gate. verifyIntegrityAsync itself
+ * carries no capability check — this is the boundary that actually makes
+ * it reachable over the network for the first time, so the gate has to
+ * live here. Runs against worlds.read, not worlds.main — worlds.main's
+ * chain is deliberately broken by _testWriteAndChain's own tampering
+ * test earlier in this same run, on purpose, and never repaired.
+ */
+async function _testAuditApiGating(w) {
+    LOG.console("\n apis/audit.js — verify_integrity is gated where it first becomes reachable\n");
+    const aliceRow = await spine.getPersonAsync(w.alice), daveRow = await spine.getPersonAsync(w.dave);
+
+    const asAlice = await auditapi.doService({op: "verify_integrity", id: aliceRow.email, org: w.org_id});
+    _check("an employee (audit.read_own only) is refused verify_integrity", asAlice.result === false, JSON.stringify(asAlice));
+
+    const asDave = await auditapi.doService({op: "verify_integrity", id: daveRow.email, org: w.org_id});
+    _check("an admin (audit.read_all) can run the integrity check", asDave.result === true && asDave.ok === true, JSON.stringify(asDave));
 }
 
 // ---------------------------------------------------------------------------
