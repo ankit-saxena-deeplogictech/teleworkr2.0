@@ -38,6 +38,14 @@
 .memenu .sep { height: 1px; background: var(--stroke); margin: 6px 4px; }
 .memenu .foot { padding: 8px 9px 4px; font-size: 11px; color: var(--t3); }
 
+/* ── A9: the notification panel, opens under the bell, never a page ── */
+.notifpanel { position: absolute; right: 62px; top: calc(var(--hdr) - 6px); width: 300px; max-height: 70vh;
+    overflow-y: auto; background: var(--panel); border: 1px solid var(--stroke-2); border-radius: var(--r-md);
+    box-shadow: var(--drop); padding: 8px; z-index: 95; display: none; }
+.notifpanel.on { display: block; animation: pop .16s var(--ease) both; }
+.notif-item.unread { background: var(--brand-w); border-radius: 8px; }
+.notif-item { padding: 7px 9px; border-radius: 8px; }
+
 /* ── first-run: create the org the IdP named ── */
 .orgboot { max-width: 480px; margin: 24px auto; background: var(--panel);
     border: 1px solid var(--stroke-2); border-radius: var(--r-lg); padding: 22px 24px;

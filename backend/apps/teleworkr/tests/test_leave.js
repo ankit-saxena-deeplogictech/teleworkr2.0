@@ -16,6 +16,7 @@ const windows = require(`${TELEWORKR_CONSTANTS.LIBDIR}/windows.js`);
 const setup = require(`${TELEWORKR_CONSTANTS.LIBDIR}/setup.js`);
 const leave = require(`${TELEWORKR_CONSTANTS.LIBDIR}/leave.js`);
 const leaveapi = require(`${TELEWORKR_CONSTANTS.APIDIR}/leave.js`);
+const notifications = require(`${TELEWORKR_CONSTANTS.LIBDIR}/notifications.js`);
 
 let passed = 0, failed = 0;
 
@@ -93,6 +94,7 @@ exports.runTestsAsync = async function(argv) {
         await _testEvaluate(w);
         await _testRequests(w);
         await _testAPI(w);
+        await _testDecisionNotification();
     } catch (err) {
         failed++; LOG.console(`  FAIL  leave tests threw: ${err}\n`); LOG.error(`Leave tests threw: ${err.stack}`);
     } finally {
@@ -344,6 +346,85 @@ async function _testAPI(w) {
     const unknown = await leaveapi.doService({op: "balance", id: "nobody@example.invalid", org: w.org_id,
         leave_type: "EL"});
     _check("an unknown actor is refused", unknown.result === false && /No person/.test(unknown.reason||""));
+}
+
+// ---------------------------------------------------------------------------
+// A9: the leave_decision notification
+// ---------------------------------------------------------------------------
+
+/**
+ * A small, fully self-contained world (its own org, manager relationship
+ * and policy) rather than reusing `w` — `w`'s own people carry no manager
+ * relationship at all, and every route in `w`'s policy starts with a
+ * "manager" step, so approving/declining there isn't reachable by anyone.
+ * Cleans up entirely on its own.
+ */
+async function _testDecisionNotification() {
+    LOG.console("\n the leave_decision notification (A9)\n");
+    const stamp = Date.now();
+    const org = await spine.createOrgAsync({name: `Leave notify test ${stamp}`, home_jurisdiction: "IN"});
+    const alice = await spine.createPersonAsync({display_name: "alice", email: `alice-notify.${stamp}@example.invalid`});
+    const bob = await spine.createPersonAsync({display_name: "bob", email: `bob-notify.${stamp}@example.invalid`});
+    const carol = await spine.createPersonAsync({display_name: "carol", email: `carol-notify.${stamp}@example.invalid`});
+    const dave = await spine.createPersonAsync({display_name: "dave", email: `dave-notify.${stamp}@example.invalid`});
+
+    await spine.recordEmploymentAsync({org_id: org.org_id, person_id: alice.person_id, status: "active",
+        jurisdiction: "IN", manager_person_id: bob.person_id, contract_type: "employee",
+        valid_from: "2026-01-01", source: "manual"});
+    await spine.recordEmploymentAsync({org_id: org.org_id, person_id: bob.person_id, status: "active",
+        jurisdiction: "IN", contract_type: "employee", valid_from: "2026-01-01", source: "manual"});
+    await spine.recordEmploymentAsync({org_id: org.org_id, person_id: carol.person_id, status: "active",
+        jurisdiction: "IN", contract_type: "employee", valid_from: "2026-01-01", source: "manual"});
+    await spine.recordEmploymentAsync({org_id: org.org_id, person_id: dave.person_id, status: "active",
+        jurisdiction: "IN", contract_type: "employee", valid_from: "2026-01-01", source: "manual"});
+
+    await permissions.ensureBuiltinRolesAsync(org.org_id);
+    const grantedFrom = {granted_by: "system", valid_from: "2026-01-01"};
+    await permissions.assignRoleAsync(org.org_id, alice.person_id, "employee", grantedFrom);
+    await permissions.assignRoleAsync(org.org_id, bob.person_id, "lead", grantedFrom);
+    await permissions.assignRoleAsync(org.org_id, carol.person_id, "hr", grantedFrom);
+    await permissions.assignRoleAsync(org.org_id, dave.person_id, "admin", grantedFrom);
+
+    await leave.publishPolicyAsync({org_id: org.org_id, actor_person_id: carol.person_id,
+        step_up_verified: true, effective_from: "2026-01-01", resolutions: {},
+        policy: {scope: {jurisdiction: "IN", contract_type: "employee", status: ["active"]},
+            leave_types: [{code: "EL", label: "Earned leave", quantum: {annual_days: 12},
+                accrual: {per_month: 1}, eligibility: {states: ["active"]},
+                notice: {multiplier: 0, floor_days: 0, short_notice_approvable: true},
+                max_per_request: 6, approval_route: ["manager"]}]}});
+    await setup.importBalancesAsync({org_id: org.org_id, actor_person_id: dave.person_id,
+        rows: [{email: `alice-notify.${stamp}@example.invalid`, leave_type: "EL", days: 10}],
+        source: "spreadsheet", cutover_date: "2026-01-01", commit: true});
+
+    const approvedRequest = await leave.requestLeaveAsync({org_id: org.org_id, person_id: alice.person_id,
+        leave_type: "EL", from_date: "2026-10-12", to_date: "2026-10-12", notice_days: 20});
+    await leave.approveLeaveRequestAsync({org_id: org.org_id, actor_person_id: bob.person_id,
+        leave_request_id: approvedRequest.request.leave_request_id});
+    const approvedNotif = await dblayer.getQueryOrThrow(
+        `SELECT * FROM notification WHERE org_id=? AND category='leave_decision' AND object_ref=?`,
+        [org.org_id, approvedRequest.request.leave_request_id]);
+    _check("approving the final step raises a leave_decision notification to the requester",
+        approvedNotif.length == 1 && approvedNotif[0].recipient_person_id == alice.person_id &&
+        JSON.parse(approvedNotif[0].payload).decision == "approved", JSON.stringify(approvedNotif));
+
+    const declinedRequest = await leave.requestLeaveAsync({org_id: org.org_id, person_id: alice.person_id,
+        leave_type: "EL", from_date: "2026-10-19", to_date: "2026-10-19", notice_days: 20});
+    await leave.declineLeaveRequestAsync({org_id: org.org_id, actor_person_id: bob.person_id,
+        leave_request_id: declinedRequest.request.leave_request_id, reason: "coverage clash"});
+    const declinedNotif = await dblayer.getQueryOrThrow(
+        `SELECT * FROM notification WHERE org_id=? AND category='leave_decision' AND object_ref=?`,
+        [org.org_id, declinedRequest.request.leave_request_id]);
+    _check("declining raises a leave_decision notification naming the reason",
+        declinedNotif.length == 1 && declinedNotif[0].recipient_person_id == alice.person_id &&
+        JSON.parse(declinedNotif[0].payload).decision == "declined" &&
+        JSON.parse(declinedNotif[0].payload).reason == "coverage clash", JSON.stringify(declinedNotif));
+
+    for (const table of ["leave_ledger_entry", "leave_request", "leave_policy_pointer", "leave_policy_version",
+        "notification", "role_capability", "role", "capability_grant", "employment"])
+        await dblayer.runCmdBestEffortAsync(`DELETE FROM ${table} WHERE org_id=?`, [org.org_id]);
+    await dblayer.runCmdBestEffortAsync("DELETE FROM org WHERE org_id=?", [org.org_id]);
+    for (const person of [alice, bob, carol, dave])
+        await dblayer.runCmdBestEffortAsync("DELETE FROM person WHERE person_id=?", [person.person_id]);
 }
 
 // ---------------------------------------------------------------------------

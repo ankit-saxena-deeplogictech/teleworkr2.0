@@ -98,6 +98,8 @@ const REGISTER = Object.freeze({
         note: "The A9 spine's history: catalogue-gated, window-routed, with the recipient's volume applied."},
     notification_setting: {shape: SHAPES.MUTABLE, erasure: ERASURE.ERASE, keep: null, anchor: ANCHORS.NONE,
         note: "The recipient's volume control, per catalogue category — never per module."},
+    notification_read: {shape: SHAPES.MUTABLE, erasure: ERASURE.ERASE, keep: null, anchor: ANCHORS.NONE,
+        note: "The recipient's own read watermark — a cursor, not a per-row flag, since notification itself stays append-only."},
 
     // --- work and knowledge ---
     task: {shape: SHAPES.MUTABLE, erasure: ERASURE.ERASE, keep: null, anchor: ANCHORS.NONE,

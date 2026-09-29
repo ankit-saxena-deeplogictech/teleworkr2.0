@@ -7,6 +7,8 @@
  *  op - set_volume - The actor's volume for one category
  *  op - settings   - The actor's whole volume map
  *  op - stats      - The org's send-and-mute picture (A9 #5)
+ *  op - feed       - The actor's own bell feed (delivered/digest rows) and unread count
+ *  op - mark_read  - Moves the actor's own read watermark forward
  *
  * (C) 2026 TekMonks. All rights reserved.
  */
@@ -43,6 +45,14 @@ exports.doService = async jsonReq => {
                 return {...CONSTANTS.TRUE_RESULT,
                     ...await notifications.volumeStatsAsync(jsonReq.org)};
             }
+            case "feed": {
+                return {...CONSTANTS.TRUE_RESULT,
+                    ...await notifications.feedAsync(jsonReq.org, actor.person_id, {limit: jsonReq.limit})};
+            }
+            case "mark_read": {
+                const read_until = await notifications.markReadAsync(jsonReq.org, actor.person_id, jsonReq.at);
+                return {...CONSTANTS.TRUE_RESULT, read_until};
+            }
             default: return CONSTANTS.FALSE_RESULT;
         }
     } catch (err) {
@@ -58,5 +68,5 @@ const _actorAsync = async jsonReq => {
 }
 
 const validateRequest = jsonReq => jsonReq &&
-    ["notify", "brief", "set_volume", "settings", "stats"].includes(jsonReq.op) &&
+    ["notify", "brief", "set_volume", "settings", "stats", "feed", "mark_read"].includes(jsonReq.op) &&
     jsonReq.id && jsonReq.org;

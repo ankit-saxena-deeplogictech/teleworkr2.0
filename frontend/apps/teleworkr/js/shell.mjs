@@ -37,7 +37,7 @@ import {render as renderAudit} from "./screens/audit.mjs";
 import {render as renderWindows} from "./screens/windows.mjs";
 import {render as renderApprovals} from "./screens/approvals.mjs";
 
-const API_SHELL = "shell", API_CLOCK = "clock";
+const API_SHELL = "shell", API_CLOCK = "clock", API_NOTIF = "notifications";
 
 /**
  * Screens land one increment at a time. A surface with no entry here still shows
@@ -52,9 +52,26 @@ const SCREENS = {day: renderDayBoard, training: renderTraining, trainingtrack: r
     permissions: renderAccess, data: renderData, identity: renderIdentity, security: renderSecurity,
     audit: renderAudit, windows: renderWindows, approvals: renderApprovals};
 const CLOCK_POLL_MS = 30000;        // the server is the record; the local tick is only the seconds between polls
+const NOTIF_POLL_MS = 60000;
 const THEME_KEY = "__teleworkr_theme";
 
+/** A9: category label and whether the person may change its volume — mirrors lib/notifications.js's own CATALOGUE. */
+const CATEGORY_META = {
+    security_incident: {label: "Security incident affecting you", mutable: false},
+    account_deprovisioned: {label: "Your account was deprovisioned", mutable: false},
+    approval_sla: {label: "Approval waiting past SLA", mutable: true},
+    became_blocker: {label: "You became the blocker", mutable: true},
+    leave_decision: {label: "Leave decision on your request", mutable: false},
+    meeting_starting: {label: "Meeting starting, you're the owner", mutable: true},
+    page_past_review: {label: "Page you own is past review", mutable: true},
+    wellbeing_signal: {label: "Wellbeing signal lit", mutable: true},
+    task_assigned: {label: "Task assigned to you", mutable: true},
+    timesheet_reminder: {label: "Your timesheet needs submitting", mutable: true},
+    comment_mention: {label: "Comment, mention, wiki change", mutable: true}
+};
+
 let projection = null, currentSurface = null, clockState = null, clockTimer = null, pollTimer = null;
+let notifTimer = null, notifTab = "feed";
 
 const _me = _ => ({id: session.get(APP_CONSTANTS.USERID)?.toString(),
     org: session.get(APP_CONSTANTS.USERORG)?.toString()});
@@ -75,6 +92,8 @@ async function initShell() {
     _renderIdentity(); _renderTabs(); _renderMeMenu(); _renderBanners();
     await _refreshClock();
     pollTimer = setInterval(_refreshClock, CLOCK_POLL_MS);
+    await _refreshNotifBadge();
+    notifTimer = setInterval(_refreshNotifBadge, NOTIF_POLL_MS);
 
     const wanted = (new URL(window.location.href).hash||"").replace("#", "");
     setSurface(_canReach(wanted) ? wanted : projection.home);
@@ -210,6 +229,7 @@ function setSurface(surfaceId) {
     currentSurface = surfaceId;
     window.history.replaceState(null, "", `#${surfaceId}`);
     document.querySelector("#memenu").classList.remove("on");
+    document.querySelector("#notifpanel").classList.remove("on");
     for (const link of document.querySelectorAll("[data-surface]"))
         link.classList.toggle("on", link.getAttribute("data-surface") == surfaceId);
 
@@ -416,6 +436,99 @@ const _time = seconds => seconds ?
     new Date(seconds*1000).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"}) : "now";
 
 // ---------------------------------------------------------------------------
+// A9 — the notification bell: opens a panel, never a page
+// ---------------------------------------------------------------------------
+
+/** Silent on failure, same as the clock's own poll — the header degrades, the page does not. */
+async function _refreshNotifBadge() {
+    const feed = await _notifOp("feed", {}, true);
+    if (feed) _updateNotifBadge(feed.unread_count);
+}
+
+function _updateNotifBadge(count) {
+    const badge = document.querySelector("#notifbadge");
+    badge.hidden = count <= 0;
+    badge.textContent = count > 99 ? "99+" : String(count);
+}
+
+async function _renderNotifPanel() {
+    const panel = document.querySelector("#notifpanel");
+    panel.innerHTML = `<div class="tr-tabs">
+        <button class="tr-tab${notifTab == "feed" ? " on" : ""}" data-notif="tab" data-tab="feed">Feed</button>
+        <button class="tr-tab${notifTab == "settings" ? " on" : ""}" data-notif="tab" data-tab="settings">Settings</button>
+    </div><div id="notifbody"></div>`;
+    for (const button of panel.querySelectorAll("[data-notif=\"tab\"]"))
+        button.addEventListener("click", _ => {notifTab = button.getAttribute("data-tab"); _renderNotifPanel();});
+
+    const body = panel.querySelector("#notifbody");
+    if (notifTab == "settings") await _renderNotifSettings(body);
+    else await _renderNotifFeed(body);
+}
+
+/** Rows raised since the *previous* visit stay visually distinct for this viewing, then the watermark moves. */
+async function _renderNotifFeed(body) {
+    body.innerHTML = states.loading({rows: 3});
+    const feed = await _notifOp("feed", {});
+    if (!feed) return;
+
+    body.innerHTML = feed.notifications.length ? feed.notifications.map(row => `
+        <div class="notif-item${row.raised_at > feed.read_until ? " unread" : ""}">
+            <div class="sm">${states.esc(CATEGORY_META[row.category]?.label || row.category)}</div>
+            <div class="sm t3">${_relativeTime(row.raised_at)}</div>
+        </div>`).join("") : `<div class="tr-empty">Nothing yet.</div>`;
+
+    if (feed.unread_count > 0) {
+        await _notifOp("mark_read", {});
+        _updateNotifBadge(0);
+    }
+}
+
+async function _renderNotifSettings(body) {
+    body.innerHTML = states.loading({rows: 3});
+    const settingsResponse = await _notifOp("settings", {});
+    if (!settingsResponse) return;
+    const settings = settingsResponse.settings || {};
+
+    body.innerHTML = Object.entries(CATEGORY_META).map(([category, meta]) => {
+        const level = settings[category] || "live";
+        return `<div class="tr-track-row">
+            <span class="grow sm">${states.esc(meta.label)}</span>
+            ${meta.mutable ? `<select class="inp" data-notif="level" data-category="${states.esc(category)}" style="width:90px">
+                <option value="live"${level == "live" ? " selected" : ""}>Live</option>
+                <option value="digest"${level == "digest" ? " selected" : ""}>Digest</option>
+                <option value="off"${level == "off" ? " selected" : ""}>Off</option>
+            </select>` : `<span class="sm t3">Live — fixed</span>`}
+        </div>`;
+    }).join("");
+
+    for (const select of body.querySelectorAll("[data-notif=\"level\"]")) select.addEventListener("change", async _ => {
+        const result = await _notifOp("set_volume",
+            {category: select.getAttribute("data-category"), level: select.value});
+        if (result) states.toast({message: "Saved."});
+    });
+}
+
+const _relativeTime = epochSeconds => {
+    const diff = Math.max(0, Math.floor(Date.now()/1000) - epochSeconds);
+    if (diff < 60) return "just now";
+    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    return `${Math.floor(diff/86400)}d ago`;
+}
+
+async function _notifOp(op, extra={}, silent=false) {
+    let response; try {
+        response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/${API_NOTIF}`, "GET", {op, ..._me(), ...extra}, true);
+    } catch (err) {response = null; LOG.error(`Notifications op ${op} failed: ${err}`);}
+
+    if (!response || !response.result) {
+        if (!silent) states.toast({message: response?.reason || "The notification service did not respond.", ms: 8000});
+        return null;
+    }
+    return response;
+}
+
+// ---------------------------------------------------------------------------
 
 function _wireChrome() {
     document.querySelector("#omni").addEventListener("click", _ =>
@@ -436,8 +549,15 @@ function _wireChrome() {
 
     document.querySelector("#clock-act").addEventListener("click", _ => toggleClock());
 
-    document.querySelector("#notifbtn").addEventListener("click", _ =>
-        states.toast({message: "The notification panel (A9) is not built yet."}));
+    const notifPanel = document.querySelector("#notifpanel"), notifBtn = document.querySelector("#notifbtn");
+    notifBtn.addEventListener("click", event => {
+        event.stopPropagation();
+        const open = notifPanel.classList.toggle("on");
+        notifBtn.setAttribute("aria-expanded", String(open));
+        if (open) _renderNotifPanel();
+    });
+    document.addEventListener("click", _ => notifPanel.classList.remove("on"));
+    notifPanel.addEventListener("click", event => event.stopPropagation());
 
     document.addEventListener("keydown", event => {      // A2: cmd-K opens the command bar
         if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() == "k") {
@@ -468,7 +588,8 @@ function _applyTheme(theme) {
 function stopShell() {
     if (clockTimer) clearInterval(clockTimer);
     if (pollTimer) clearInterval(pollTimer);
-    clockTimer = pollTimer = null;
+    if (notifTimer) clearInterval(notifTimer);
+    clockTimer = pollTimer = notifTimer = null;
 }
 
 export const shell = {initShell, refreshProjection, setSurface, stopShell, toggleClock,

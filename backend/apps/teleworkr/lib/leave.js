@@ -26,6 +26,7 @@ const dblayer = require(`${TELEWORKR_CONSTANTS.LIBDIR}/dblayer.js`);
 const permissions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/permissions.js`);
 const audit = require(`${TELEWORKR_CONSTANTS.LIBDIR}/audit.js`);
 const windows = require(`${TELEWORKR_CONSTANTS.LIBDIR}/windows.js`);
+const notifications = require(`${TELEWORKR_CONSTANTS.LIBDIR}/notifications.js`);
 const policyconflicts = require(`${TELEWORKR_CONSTANTS.LIBDIR}/policy_conflicts.js`);
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -786,6 +787,15 @@ exports.approveLeaveRequestAsync = async function(request) {
 
     const balanceAfter = isFinal ? await exports.balanceAsync({org_id: request.org_id,
         person_id: pending.person_id, leave_type: pending.leave_type, asOf: pending.from_date}) : null;
+
+    if (isFinal) try {
+        await notifications.notifyAsync({org_id: request.org_id, category: "leave_decision",
+            recipient_person_id: pending.person_id, actor_person_id: request.actor_person_id,
+            payload: {decision: "approved", leave_type: pending.leave_type,
+                from_date: pending.from_date, to_date: pending.to_date},
+            object_ref: pending.leave_request_id});
+    } catch (err) {LOG.error(`Could not notify ${pending.person_id} of their leave approval: ${err}`);}
+
     return {result, step: token, final: isFinal, balance_after: balanceAfter};
 }
 
@@ -804,7 +814,7 @@ exports.declineLeaveRequestAsync = async function(request) {
     if (!_stepAccepts(token, request.actor_person_id, manager, isOrgApprover)) throw new Error(
         `You are not the approver for this step (${token}).`);
 
-    return await audit.performAsync({
+    const declined = await audit.performAsync({
         org_id: request.org_id, actor_person_id: request.actor_person_id,
         capability: "leave.approve", subject_person_id: pending.person_id,
         audit: {action: "leave.declined", object_type: "leave_request", object_ref: pending.leave_request_id,
@@ -816,6 +826,15 @@ exports.declineLeaveRequestAsync = async function(request) {
                 [request.actor_person_id, _now(), request.reason, pending.leave_request_id]);
             return "declined";
         }});
+
+    try {
+        await notifications.notifyAsync({org_id: request.org_id, category: "leave_decision",
+            recipient_person_id: pending.person_id, actor_person_id: request.actor_person_id,
+            payload: {decision: "declined", leave_type: pending.leave_type, reason: request.reason},
+            object_ref: pending.leave_request_id});
+    } catch (err) {LOG.error(`Could not notify ${pending.person_id} of their leave decline: ${err}`);}
+
+    return declined;
 }
 
 /**

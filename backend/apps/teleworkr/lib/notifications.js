@@ -128,6 +128,42 @@ exports.ackBriefAsync = async function(org_id, person_id, notification_ids) {
     return targets.length;
 }
 
+/** The person's own read watermark — everything is unread until first opened. */
+async function _readUntilAsync(org_id, person_id) {
+    const rows = await dblayer.getQueryOrThrow(
+        "SELECT read_until FROM notification_read WHERE org_id=? AND person_id=?", [org_id, person_id]);
+    return rows.length ? rows[0].read_until : 0;
+}
+
+/**
+ * The A9 bell's feed: delivered and digest rows only — brief-status rows
+ * (task_assigned, comment_mention) are B4's own bucket, read via
+ * briefQueueAsync instead, never duplicated here.
+ *
+ * @param {string} org_id The org
+ * @param {string} person_id The recipient
+ * @param {object} options {limit}
+ * @returns {object} {notifications, read_until, unread_count}
+ */
+exports.feedAsync = async function(org_id, person_id, options={}) {
+    const notificationRows = await dblayer.getQueryOrThrow(
+        `SELECT * FROM notification WHERE org_id=? AND recipient_person_id=? AND status IN ('delivered','digest')
+            ORDER BY raised_at DESC LIMIT ?`,
+        [org_id, person_id, options.limit || 50]);
+    const read_until = await _readUntilAsync(org_id, person_id);
+    const unread_count = notificationRows.filter(row => row.raised_at > read_until).length;
+    return {notifications: notificationRows, read_until, unread_count};
+}
+
+/** Moves the person's read watermark forward — a cursor, not a per-row flag. */
+exports.markReadAsync = async function(org_id, person_id, at) {
+    const read_until = at || _now();
+    await dblayer.runCmdOrThrow(
+        "INSERT OR REPLACE INTO notification_read (org_id, person_id, read_until) VALUES (?,?,?)",
+        [org_id, person_id, read_until]);
+    return read_until;
+}
+
 /** The recipient's volume for one category — defaults to live. */
 exports.volumeOfAsync = async function(org_id, person_id, category) {
     const rows = await dblayer.getQueryOrThrow(
