@@ -62,6 +62,10 @@ const SURFACES = Object.freeze({
     me:        {console: "Me",    label: "What your manager sees",   screen: "H5", order: 60, classification: CLASS.SHARED},
     approvals: {console: "Me",    label: "Approvals",   screen: "C7", order: 70, classification: CLASS.GATED,
         any_of: ["timesheet.approve", "leave.approve"]},
+    // E4: declaring a window or travel needs no capability at all — same
+    // as day/calendar/team — since it's the caller's own availability,
+    // not a permission-gated view of anyone else's.
+    windows:   {console: "Me",    label: "Working hours & travel", screen: "E4", order: 71, classification: CLASS.SHARED},
     leave:     {console: "Leave", label: "My leave",    screen: "J3", order: 80, classification: CLASS.GATED,
         capability: "leave.request"},
     policy:    {console: "Leave", label: "Leave policy", screen: "J2", order: 90, classification: CLASS.EXCLUSIVE,

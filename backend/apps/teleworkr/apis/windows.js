@@ -5,6 +5,7 @@
  *  op - set           - Declares or changes the caller's working window
  *  op - travel        - Sets a dated travel period, resuming the base after it
  *  op - asof          - The caller's window in force on a date
+ *  op - history        - Every one of the caller's window periods, oldest first
  *  op - availability  - The caller's availability for one date
  *  op - team_overlap  - The shared window for a set of people on a date
  *  op - dst           - DST transition flags for a set of people in the coming week
@@ -39,6 +40,10 @@ exports.doService = async jsonReq => {
                 const window = await windows.windowAsOfAsync(jsonReq.org, actor.person_id,
                     jsonReq.as_of || jsonReq.date);
                 return {...CONSTANTS.TRUE_RESULT, window};
+            }
+            case "history": {
+                const history = await windows.windowHistoryAsync(jsonReq.org, actor.person_id);
+                return {...CONSTANTS.TRUE_RESULT, history};
             }
             case "availability": {
                 const availability = await windows.availabilityForDateAsync(
@@ -75,5 +80,5 @@ const _actorAsync = async jsonReq => {
 }
 
 const validateRequest = jsonReq => jsonReq &&
-    ["set", "travel", "asof", "availability", "team_overlap", "dst", "drift"].includes(jsonReq.op) &&
+    ["set", "travel", "asof", "history", "availability", "team_overlap", "dst", "drift"].includes(jsonReq.op) &&
     jsonReq.id && jsonReq.org;
