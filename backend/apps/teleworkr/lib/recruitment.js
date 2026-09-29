@@ -27,17 +27,31 @@
  *   - Scorecards submit directly; no draft/autosave state (K7's "draft"
  *     state is deferred).
  *   - No re-entry / reuse-results-for-reapplication (K1's `reuse_results_for`).
- *   - Deferred entirely to later phases: the candidate portal (K9 — needs a
- *     magic-link/no-login surface nothing else in this app uses),
- *     hire→onboarding handoff (K10 — depends on D5/B3/G1, none of which
- *     exist yet), retention & fairness runs (K12).
+ *   - Still deferred: hire→onboarding handoff (K10 — depends on D5/B3/G1,
+ *     none of which exist yet), retention & fairness runs (K12, which
+ *     explicitly builds on K9's portal existing first).
+ *
+ * K9 (the candidate portal) is a magic link — `candidate_portal_link`,
+ * `wiki_share_link`'s own shape reused, long-lived rather than expiring —
+ * reaching five public, no-actor functions (`portalStatusAsync` and
+ * friends, at the bottom of this file) that mirror `training.js`'s own
+ * `op=="verify"` precedent for a route nothing signs in to reach.
+ * Withdrawal is deliberately not a seventh `stage_transition` kind — it's
+ * an out-of-band candidate decision, not a workflow-round one — so it
+ * lives on `application.withdrawn_at` and overrides `_projectAsync`'s
+ * result directly; `legalActionsAsync` already refuses every further
+ * transition once any terminal is set, so that one override is what makes
+ * withdrawal correct everywhere the engine is consulted. Narrowed hard:
+ * no email delivery of the link (no email infrastructure exists anywhere
+ * in this app; a recruiter copies and sends it), no "join link" (no
+ * meeting integration exists), no interviewer role labels (no job-title
+ * field exists anywhere in this schema), no document upload (no G2/files).
  *
  * K6 (panel scheduling) adds no availability model of its own — the panel
  * is checked against the E3 board with J6 leave already wired in
  * (`calendar.teamBoardAsync`), and a completed panel's hours land in the
  * time ledger exactly the way a completed training module's do. Narrowed,
- * deliberately: no candidate self-scheduling from offered slots (waits for
- * K9's portal), no calendar invites or room links (no calendar system
+ * deliberately: no calendar invites or room links (no calendar system
  * exists), interviewers chosen per panel rather than derived from the
  * round's `owner_role` tag, and interviewer load reported as counts and
  * hours with no "overloaded" threshold — the wireframe illustrates one but
@@ -571,12 +585,7 @@ exports.candidateRecordAsync = async function(org_id, actor_person_id, applicati
     const candidate = await _candidateAsync(org_id, application.candidate_id);
     const requisition = await _requisitionAsync(org_id, application.requisition_id);
     const version = await _versionByIdAsync(org_id, application.workflow_version_id);
-    const projected = await _project(JSON.parse(version.rounds),
-        await dblayer.getQueryOrThrow(
-            "SELECT * FROM stage_transition WHERE org_id=? AND application_id=? ORDER BY occurred_at ASC",
-            [org_id, application_id]),
-        await dblayer.getQueryOrThrow(
-            "SELECT * FROM scorecard WHERE org_id=? AND application_id=?", [org_id, application_id]));
+    const projected = await _projectAsync(org_id, application);
 
     const scorecards = await dblayer.getQueryOrThrow(
         "SELECT * FROM scorecard WHERE org_id=? AND application_id=?", [org_id, application_id]);
@@ -615,9 +624,9 @@ exports.candidateRecordAsync = async function(org_id, actor_person_id, applicati
 
 /**
  * Records the candidate's timezone and what they said about when they can
- * talk. There is no candidate portal yet (K9), so the hiring team enters
- * this on the candidate's behalf. The notes are typed text about a person,
- * so they go nowhere near the audit detail.
+ * talk. The hiring team's own path — `portalUpdateAvailabilityAsync` is
+ * K9's candidate-triggered twin, writing the same two columns via a
+ * portal token instead of a capability.
  *
  * @param {object} request {org_id, actor_person_id, candidate_id, timezone,
  *      availability_notes}
@@ -811,6 +820,186 @@ exports.recordPanelOutcomeAsync = async function(request) {
             return {panel: _panelRow({...panel, status: request.outcome,
                 reason: request.reason || panel.reason || null, completed_at: completedAt}, names), time_entries};
         }});
+}
+
+// ---------------------------------------------------------------------------
+// K9 — the candidate portal: a magic link, and everything reachable through it
+//
+// The link is wiki_share_link's own shape, reused deliberately: {token,
+// created_at/by, revoked_at/by} — long-lived rather than 14-day-expiring,
+// since a hiring process runs for weeks. The five portalXAsync functions
+// below take that token in place of an actor entirely; there is no employee
+// identity here, so each writes its own audit entry directly with
+// actor_kind: "system" (identity.js's own precedent for an IdP-driven write
+// nobody signed in to make) rather than going through audit.performAsync,
+// which assumes a capability-holding person exists to check.
+// ---------------------------------------------------------------------------
+
+/** @param {object} request {org_id, actor_person_id, application_id} */
+exports.generatePortalLinkAsync = async function(request) {
+    const application = await _applicationAsync(request.org_id, request.application_id);
+    if (!application) throw new Error(`No application ${request.application_id}.`);
+
+    return await audit.performAsync({
+        org_id: request.org_id, actor_person_id: request.actor_person_id, capability: "candidate_portal.manage",
+        audit: {action: "recruitment.portal_link_generated", object_type: "application",
+            object_ref: request.application_id, detail: {}},
+        action: async exec => {
+            // one active link at a time — same supersession discipline as leave_policy_pointer
+            await exec.runCmd(
+                "UPDATE candidate_portal_link SET revoked_at=?, revoked_by=? WHERE org_id=? AND application_id=? AND revoked_at IS NULL",
+                [_now(), request.actor_person_id, request.org_id, request.application_id]);
+            const row = {link_id: _uuid(), org_id: request.org_id, application_id: request.application_id,
+                token: _uuid(), created_at: _now(), created_by: request.actor_person_id};
+            await exec.runCmd(
+                `INSERT INTO candidate_portal_link (link_id, org_id, application_id, token, created_at, created_by)
+                    VALUES (?,?,?,?,?,?)`,
+                [row.link_id, row.org_id, row.application_id, row.token, row.created_at, row.created_by]);
+            return row;
+        }});
+}
+
+/** @param {object} request {org_id, actor_person_id, link_id} */
+exports.revokePortalLinkAsync = async function(request) {
+    const link = (await dblayer.getQueryOrThrow("SELECT * FROM candidate_portal_link WHERE org_id=? AND link_id=?",
+        [request.org_id, request.link_id]))[0];
+    if (!link) throw new Error(`No portal link ${request.link_id}.`);
+    if (link.revoked_at) throw new Error("This link was already revoked.");
+    return await audit.performAsync({
+        org_id: request.org_id, actor_person_id: request.actor_person_id, capability: "candidate_portal.manage",
+        audit: {action: "recruitment.portal_link_revoked", object_type: "application",
+            object_ref: link.application_id, detail: {link_id: request.link_id}},
+        action: async exec => {
+            await exec.runCmd("UPDATE candidate_portal_link SET revoked_at=?, revoked_by=? WHERE link_id=?",
+                [_now(), request.actor_person_id, request.link_id]);
+            return "revoked";
+        }});
+}
+
+exports.portalLinksForApplicationAsync = async function(org_id, actor_person_id, application_id) {
+    await _requireReadAsync(org_id, actor_person_id, "read a candidate's portal links");
+    return {links: await dblayer.getQueryOrThrow(
+        "SELECT * FROM candidate_portal_link WHERE org_id=? AND application_id=? ORDER BY created_at DESC",
+        [org_id, application_id])};
+}
+
+/** Validates a token and touches last_used_at. @returns The link row @throws If the token is unknown or revoked */
+async function _portalTokenRowAsync(token) {
+    if (!token) throw new Error("This link is not valid.");
+    const rows = await dblayer.getQueryOrThrow("SELECT * FROM candidate_portal_link WHERE token=?", [token]);
+    const link = rows[0];
+    if (!link) throw new Error("This link is not valid.");
+    if (link.revoked_at) throw new Error("This link has been revoked.");
+    await dblayer.runCmdOrThrow("UPDATE candidate_portal_link SET last_used_at=? WHERE link_id=?", [_now(), link.link_id]);
+    return link;
+}
+
+/**
+ * The public, curated view — everything the candidate portal renders, and
+ * nothing else. No scorecard scores or evidence, no other candidate, no
+ * interviewer "role" (no job-title field exists anywhere in this schema —
+ * name only), no join link (no meeting/video integration exists anywhere
+ * in this app either).
+ * @param {string} token The portal link's token
+ */
+exports.portalStatusAsync = async function(token) {
+    const link = await _portalTokenRowAsync(token);
+    const application = await _applicationAsync(link.org_id, link.application_id);
+    const candidate = await _candidateAsync(link.org_id, application.candidate_id);
+    const requisition = await _requisitionAsync(link.org_id, application.requisition_id);
+    const projected = await _projectAsync(link.org_id, application);
+
+    const openRoundIds = new Set(projected.current_rounds.map(entry => entry.round.id));
+    const panels = await dblayer.getQueryOrThrow(
+        `SELECT * FROM panel_assignment WHERE org_id=? AND application_id=? AND status='scheduled'
+            ORDER BY scheduled_start ASC`, [link.org_id, link.application_id]);
+    const nextPanel = panels.find(panel => openRoundIds.has(panel.round_id));
+    const names = nextPanel ? await _namesAsync(link.org_id) : {};
+
+    return {
+        candidate: {full_name: candidate.full_name, timezone: candidate.timezone, availability_notes: candidate.availability_notes},
+        requisition: requisition ? {title: requisition.title} : null,
+        pipeline: projected.rounds.map(round => ({title: round.title, status: round.status})),
+        next_round: nextPanel ? {panel_assignment_id: nextPanel.panel_assignment_id,
+            round_title: projected.rounds.find(r => r.id == nextPanel.round_id)?.title || nextPanel.round_id,
+            scheduled_start: nextPanel.scheduled_start, scheduled_end: nextPanel.scheduled_end,
+            timezone_base: nextPanel.timezone_base, candidate_reschedule_count: nextPanel.candidate_reschedule_count,
+            interviewers: JSON.parse(nextPanel.interviewer_person_ids).map(person_id => ({name: names[person_id] || person_id}))} : null,
+        terminal: projected.terminal ? {kind: projected.terminal.kind, reason: projected.terminal.reason || null} : null,
+        consent_retain: Boolean(candidate.consent_retain)};
+}
+
+/** @param {object} request {token, reason} */
+exports.portalWithdrawAsync = async function(request) {
+    const link = await _portalTokenRowAsync(request.token);
+    const application = await _applicationAsync(link.org_id, link.application_id);
+    const projected = await _projectAsync(link.org_id, application);
+    if (projected.terminal) throw new Error(`This application is already ${projected.terminal.kind}.`);
+
+    await dblayer.runCmdOrThrow("UPDATE application SET withdrawn_at=?, withdrawn_reason=? WHERE application_id=?",
+        [_now(), request.reason || null, link.application_id]);
+    await audit.writeAsync({org_id: link.org_id, action: "recruitment.candidate_withdrawn", object_type: "application",
+        object_ref: link.application_id, actor_kind: "system", detail: {via: "candidate_portal", application_id: link.application_id}});
+    return "withdrawn";
+}
+
+/** @param {object} request {token, timezone, availability_notes} — updateCandidateAsync's candidate-triggered twin */
+exports.portalUpdateAvailabilityAsync = async function(request) {
+    const link = await _portalTokenRowAsync(request.token);
+    if (request.timezone) _assertTimezone(request.timezone);
+    const candidate_id = (await _applicationAsync(link.org_id, link.application_id)).candidate_id;
+
+    await dblayer.runCmdOrThrow("UPDATE candidate SET timezone=?, availability_notes=? WHERE candidate_id=?",
+        [request.timezone || null, request.availability_notes || null, candidate_id]);
+    await audit.writeAsync({org_id: link.org_id, action: "recruitment.candidate_availability_set", object_type: "candidate",
+        object_ref: candidate_id, actor_kind: "system", detail: {via: "candidate_portal", timezone: request.timezone || null}});
+    return "updated";
+}
+
+/**
+ * Self-service reschedule, twice, before it needs a conversation — the
+ * wireframe's own rule, counted per panel. Reuses reschedulePanelAsync's
+ * own validation (_assertSlot, _assertRoundOpenAsync, _panelFitAsync)
+ * rather than re-deriving it.
+ * @param {object} request {token, panel_assignment_id, scheduled_start, scheduled_end}
+ */
+exports.portalRescheduleAsync = async function(request) {
+    const link = await _portalTokenRowAsync(request.token);
+    const panel = await _panelAsync(link.org_id, request.panel_assignment_id);
+    if (!panel || panel.application_id != link.application_id) throw new Error(`No panel ${request.panel_assignment_id}.`);
+    if (panel.status != "scheduled") throw new Error(`This panel is ${panel.status} — only a scheduled panel can move.`);
+    if (panel.candidate_reschedule_count >= 2) throw new Error(
+        "This interview has already been rescheduled twice through the portal — please contact your recruiter to move it again.");
+    _assertSlot(request.scheduled_start, request.scheduled_end);
+    await _assertRoundOpenAsync(link.org_id, panel.application_id, panel.round_id);
+    const interviewers = JSON.parse(panel.interviewer_person_ids);
+    const warnings = await _panelFitAsync(link.org_id, interviewers, request.scheduled_start, request.scheduled_end);
+
+    await dblayer.runCmdOrThrow(
+        `UPDATE panel_assignment SET scheduled_start=?, scheduled_end=?, candidate_reschedule_count=candidate_reschedule_count+1
+            WHERE panel_assignment_id=?`,
+        [request.scheduled_start, request.scheduled_end, panel.panel_assignment_id]);
+    // Not a stage_transition row: that ledger's actor_person_id is not-null
+    // (every existing kind is recorded by a real employee), and "rescheduled"
+    // resolves nothing in _project's own walk anyway (see its comment) — purely
+    // informational either way, and the audit entry below is that record.
+    await audit.writeAsync({org_id: link.org_id, action: "recruitment.panel_rescheduled", object_type: "application",
+        object_ref: panel.application_id, actor_kind: "system",
+        detail: {via: "candidate_portal", panel_assignment_id: panel.panel_assignment_id,
+            from_start: panel.scheduled_start, to_start: request.scheduled_start}});
+    return {panel: _panelRow({...panel, scheduled_start: request.scheduled_start, scheduled_end: request.scheduled_end,
+        candidate_reschedule_count: panel.candidate_reschedule_count+1}, await _namesAsync(link.org_id)), warnings};
+}
+
+/** @param {object} request {token, consent_retain} — the one real hook K12's own retention differentiation builds on */
+exports.portalSetConsentAsync = async function(request) {
+    const link = await _portalTokenRowAsync(request.token);
+    const candidate_id = (await _applicationAsync(link.org_id, link.application_id)).candidate_id;
+    await dblayer.runCmdOrThrow("UPDATE candidate SET consent_retain=?, consent_retain_at=? WHERE candidate_id=?",
+        [request.consent_retain ? 1 : 0, _now(), candidate_id]);
+    await audit.writeAsync({org_id: link.org_id, action: "recruitment.candidate_consent_set", object_type: "application",
+        object_ref: link.application_id, actor_kind: "system", detail: {via: "candidate_portal", consent_retain: Boolean(request.consent_retain)}});
+    return "recorded";
 }
 
 /**
@@ -1439,7 +1628,17 @@ async function _projectAsync(org_id, application) {
         [org_id, application.application_id]);
     const scorecards = await dblayer.getQueryOrThrow(
         "SELECT * FROM scorecard WHERE org_id=? AND application_id=?", [org_id, application.application_id]);
-    return _project(rounds, transitions, scorecards);
+    const projected = _project(rounds, transitions, scorecards);
+
+    // K9: withdrawal is an out-of-band candidate decision, not a workflow-round
+    // one, so it is deliberately not a stage_transition kind — it overrides
+    // whatever _project concluded, here, once, rather than teaching the walk
+    // itself a kind that never advances a round. legalActionsAsync already
+    // refuses every further transition once `terminal` is set, so this one
+    // override is what makes withdrawal correct everywhere this is consulted.
+    if (application.withdrawn_at) return {...projected, current_rounds: [],
+        terminal: {kind: "withdrawn", reason: application.withdrawn_reason, occurred_at: application.withdrawn_at}};
+    return projected;
 }
 
 /**

@@ -1,0 +1,73 @@
+<style>
+/*
+ * K9 — the candidate portal. A standalone page outside the login-gated
+ * shell, same top-level pattern as login.html — no sign-in, reached by a
+ * magic link. Component classes (.tr-card, .btn, .inp, .up, .sm, .t3) come
+ * from training.css/tokens.css/states.css, loaded below, the same as every
+ * screen inside the shell; only page-level layout is defined here.
+ * (C) 2026 TekMonks. All rights reserved.
+ */
+
+body {
+	margin: 0; padding: 0;
+	font-family: var(--f-body);
+	background: var(--void);
+	color: var(--t1);
+	min-height: 100vh;
+}
+
+div.portal-wrap {
+	max-width: 640px;
+	margin: 0 auto;
+	padding: 2.5em 1.4em 4em;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+div.portal-hero .mark { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+div.portal-hero .mark img { height: 28px; }
+div.portal-hero .mark span { font-family: var(--f-display); font-weight: 600; font-size: 13px; }
+div.portal-hero h1 {
+	font-family: var(--f-display); font-size: clamp(22px, 4vw, 30px);
+	font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px;
+}
+</style>
+{{{APP_CONSTANTS.MOBILE_MEDIA_QUERY_PORTRAIT_START}}}
+	div.portal-wrap { padding: 1.6em 1em 3em; }
+{{{APP_CONSTANTS.MOBILE_MEDIA_QUERY_PORTRAIT_END}}}
+
+<!doctype html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+
+	<link href="./img/favicon.svg" rel="icon" type="image/svg+xml">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="./css/tokens.css">
+	<link rel="stylesheet" href="./css/states.css">
+	<link rel="stylesheet" href="./css/training.css">
+
+	<title>Your application</title>
+
+	<script type="module">
+	import {APP_CONSTANTS as RAW_CONSTANTS} from "./js/constants.mjs";
+	window.APP_CONSTANTS = window.APP_CONSTANTS || RAW_CONSTANTS;
+	import {render} from "./js/portal.mjs";
+	render(document.getElementById("portal-root"));
+	</script>
+</head>
+
+<body>
+<div class="portal-wrap">
+	<div class="portal-hero">
+		<div class="mark"><img src="./img/logo.svg" alt=""><span>TeleWorkr <span class="t3">by Tekmonks</span></span></div>
+	</div>
+	<div id="portal-root"></div>
+</div>
+</body>
+
+</html>

@@ -134,6 +134,8 @@ const REGISTER = Object.freeze({
         note: "Compensation data about a candidate, versioned by negotiation. Erases with the rest of the application — an accepted offer's terms move to the employee record at K10, which is a separate write, not a survivor of this one."},
     offer_approval: {shape: SHAPES.EDGE, erasure: ERASURE.ERASE, keep: "6m", anchor: ANCHORS.REQUISITION_CLOSED,
         note: "One row per distinct approver — the database's own enforcement that the same person cannot satisfy the route twice."},
+    candidate_portal_link: {shape: SHAPES.EDGE, erasure: ERASURE.ERASE, keep: "6m", anchor: ANCHORS.REQUISITION_CLOSED,
+        note: "K9's magic link — a 1:1 companion to the application it grants access to, same treatment as the application itself."},
     signal_ledger_entry: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.ERASE, keep: "13m", anchor: ANCHORS.SIGNAL_EVALUATED,
         note: "Reads six tables, writes one. The wellbeing module adds no new collection — that is what makes it defensible."},
     signal_definition: {shape: SHAPES.VERSIONED_POINTER, erasure: ERASURE.RETAIN, keep: null, anchor: ANCHORS.NONE,

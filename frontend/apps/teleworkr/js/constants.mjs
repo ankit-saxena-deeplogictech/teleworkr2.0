@@ -16,13 +16,14 @@ const LOGIN_HTML = APP_PATH+"/login.html";
 const INDEX_HTML = APP_PATH+"/index.html";
 const ERROR_HTML = APP_PATH+"/error.html";
 const LOGINRESULT_HTML = APP_PATH+"/loginresult.html";
+const PORTAL_HTML = APP_PATH+"/portal.html";      // K9: the candidate portal — public, outside the login-gated shell
 const ALL_USER_PAGES = [window.location.origin, LOGIN_HTML, INDEX_HTML, ERROR_HTML, LOGINRESULT_HTML, 
     $$.MONKSHU_CONSTANTS.ERROR_HTML, `${APP_PATH}/.+\.html`];
 const ABOUT_URL = "https://teleworkr.com/";
 
 export const APP_CONSTANTS = {
     FRONTEND, BACKEND, APP_PATH, APP_NAME, COMPONENTS_PATH, API_PATH, LIB_PATH, CONF_PATH,  
-    MAIN_HTML, LOGIN_HTML, INDEX_HTML, ERROR_HTML, LOGINRESULT_HTML, ABOUT_URL, 
+    MAIN_HTML, LOGIN_HTML, INDEX_HTML, ERROR_HTML, LOGINRESULT_HTML, PORTAL_HTML, ABOUT_URL,
 
     SESSION_NOTE_ID: "com_monkshu_ts",
 

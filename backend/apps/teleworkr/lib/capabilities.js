@@ -137,6 +137,8 @@ const CATALOGUE = Object.freeze({
     "scorecard.submit": {label: "Submit an interview scorecard", scopes: [SCOPES.TEAM, SCOPES.ORG], always_audited: true},
     "panel.schedule": {label: "Schedule an interview panel and record how it went", scopes: [SCOPES.ORG],
         always_audited: true},
+    "candidate_portal.manage": {label: "Generate and revoke candidate portal links", scopes: [SCOPES.ORG],
+        always_audited: true},
     "offer.approve": {label: "Approve, send and record the outcome of an offer", scopes: [SCOPES.ORG],
         always_audited: true}
 });
@@ -174,6 +176,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["survey.publish", SCOPES.ORG],
         ["workflow.publish", SCOPES.ORG], ["requisition.approve", SCOPES.ORG], ["requisition.create", SCOPES.ORG],
         ["stage_transition.record", SCOPES.ORG], ["scorecard.submit", SCOPES.ORG], ["panel.schedule", SCOPES.ORG],
+        ["candidate_portal.manage", SCOPES.ORG],
         ["offer.approve", SCOPES.ORG],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     admin: {label: "Org admin", capabilities: [
@@ -190,7 +193,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["training.publish", SCOPES.ORG], ["survey.publish", SCOPES.ORG],
         ["workflow.publish", SCOPES.ORG], ["requisition.approve", SCOPES.ORG], ["requisition.create", SCOPES.ORG],
         ["candidate.read", SCOPES.ORG], ["stage_transition.record", SCOPES.ORG], ["scorecard.submit", SCOPES.ORG],
-        ["panel.schedule", SCOPES.ORG], ["offer.approve", SCOPES.ORG]]},
+        ["panel.schedule", SCOPES.ORG], ["candidate_portal.manage", SCOPES.ORG], ["offer.approve", SCOPES.ORG]]},
     guest: {label: "Guest", capabilities: [["audit.read_own", SCOPES.SELF]]}
 });
 

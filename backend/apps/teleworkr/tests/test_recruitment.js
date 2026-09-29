@@ -72,6 +72,7 @@ exports.runTestsAsync = async function(argv) {
         await _testCapabilityRefusals(w, requisition);
         await _testIdempotency(w, requisition);
         await _testPanelScheduling(w, requisition);
+        await _testCandidatePortal(w, requisition);
         await _testOffers(w, workflow);
         await _testAnalytics(w);
     } catch (err) {
@@ -534,6 +535,117 @@ async function _testPanelScheduling(w, requisition) {
 }
 
 /**
+ * K9: the candidate portal — a magic link, and everything reachable
+ * through it, with no employee actor anywhere in this function.
+ */
+async function _testCandidatePortal(w, requisition) {
+    LOG.console("\n K9 — the candidate portal\n");
+
+    const applied = await recruitment.applyAsync({org_id: w.org_id, actor_person_id: w.carol,
+        requisition_id: requisition.requisition_id, full_name: "Portal Test",
+        email: `portal.${w.stamp}@example.invalid`});
+    const applicationId = applied.application_id;
+
+    await _checkThrows("an employee cannot generate a portal link",
+        _ => recruitment.generatePortalLinkAsync({org_id: w.org_id, actor_person_id: w.alice, application_id: applicationId}));
+    const generated = await recruitment.generatePortalLinkAsync({org_id: w.org_id, actor_person_id: w.carol, application_id: applicationId});
+    _check("generating a link succeeds", Boolean(generated.token), JSON.stringify(generated));
+
+    await _checkThrows("an invalid token is refused", _ => recruitment.portalStatusAsync("not-a-real-token"));
+
+    const status = await recruitment.portalStatusAsync(generated.token);
+    _check("the status view names the candidate and the requisition", status.candidate.full_name == "Portal Test" &&
+        status.requisition.title == requisition.title, JSON.stringify(status));
+    _check("the pipeline lists every round, none of them resolved yet", status.pipeline.length == 5 &&
+        status.pipeline.every(round => ["pending", "not_started"].includes(round.status)), JSON.stringify(status.pipeline));
+    _check("no next round yet — nothing has been scheduled", status.next_round === null);
+    _check("not terminal", status.terminal === null);
+
+    // schedule a real panel for r1 and confirm it surfaces, curated
+    const day = _inDays(10);
+    const scheduled = await recruitment.schedulePanelAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: applicationId, round_id: "r1", interviewer_person_ids: [w.carol, w.dave],
+        scheduled_start: _at(day, 10), scheduled_end: _at(day, 11), timezone_base: "Europe/London"});
+    const withPanel = await recruitment.portalStatusAsync(generated.token);
+    _check("the next scheduled panel appears with its time and interviewer names",
+        withPanel.next_round?.panel_assignment_id == scheduled.panel.panel_assignment_id &&
+        withPanel.next_round.scheduled_start == _at(day, 10) &&
+        withPanel.next_round.interviewers.map(i => i.name).sort().join(",") == "carol,dave",
+        JSON.stringify(withPanel.next_round));
+    _check("nothing scorecard-shaped ever appears in the curated view",
+        !/scorecard|evidence|recommendation|rating/i.test(JSON.stringify(withPanel)), JSON.stringify(withPanel));
+
+    // self-service reschedule — twice, then refused
+    const first = await recruitment.portalRescheduleAsync({token: generated.token,
+        panel_assignment_id: scheduled.panel.panel_assignment_id, scheduled_start: _at(day, 12), scheduled_end: _at(day, 13)});
+    _check("the first self-service reschedule succeeds and counts it",
+        first.panel.scheduled_start == _at(day, 12) && first.panel.candidate_reschedule_count == 1, JSON.stringify(first.panel));
+    const second = await recruitment.portalRescheduleAsync({token: generated.token,
+        panel_assignment_id: scheduled.panel.panel_assignment_id, scheduled_start: _at(day, 14), scheduled_end: _at(day, 15)});
+    _check("the second counts too", second.panel.candidate_reschedule_count == 2);
+    await _checkThrows("a third self-service reschedule is refused — contact your recruiter", _ =>
+        recruitment.portalRescheduleAsync({token: generated.token, panel_assignment_id: scheduled.panel.panel_assignment_id,
+            scheduled_start: _at(day, 16), scheduled_end: _at(day, 17)}));
+    const stillOpen = await recruitment.legalActionsAsync(w.org_id, w.carol, applicationId);
+    _check("the round the panel belongs to is still open after all that — reschedule resolves nothing",
+        stillOpen.current_rounds.some(r => r.round_id == "r1"), JSON.stringify(stillOpen.current_rounds));
+
+    // availability — the candidate's own twin of updateCandidateAsync
+    await recruitment.portalUpdateAvailabilityAsync({token: generated.token, timezone: "Asia/Kolkata", availability_notes: "Evenings"});
+    const storedAvail = (await dblayer.getQueryOrThrow("SELECT timezone, availability_notes FROM candidate WHERE candidate_id=?",
+        [applied.candidate_id]))[0];
+    _check("availability set through the portal lands on the same columns updateCandidateAsync writes",
+        storedAvail.timezone == "Asia/Kolkata" && storedAvail.availability_notes == "Evenings", JSON.stringify(storedAvail));
+
+    // consent
+    await recruitment.portalSetConsentAsync({token: generated.token, consent_retain: true});
+    const storedConsent = (await dblayer.getQueryOrThrow("SELECT consent_retain, consent_retain_at FROM candidate WHERE candidate_id=?",
+        [applied.candidate_id]))[0];
+    _check("consent is recorded", storedConsent.consent_retain == 1 && Boolean(storedConsent.consent_retain_at), JSON.stringify(storedConsent));
+
+    // revoke, then a second link
+    await recruitment.revokePortalLinkAsync({org_id: w.org_id, actor_person_id: w.carol, link_id: generated.link_id});
+    await _checkThrows("a revoked link is refused", _ => recruitment.portalStatusAsync(generated.token));
+    const regenerated = await recruitment.generatePortalLinkAsync({org_id: w.org_id, actor_person_id: w.carol, application_id: applicationId});
+    _check("a fresh link works even though the old one doesn't", Boolean((await recruitment.portalStatusAsync(regenerated.token)).candidate));
+    const links = await recruitment.portalLinksForApplicationAsync(w.org_id, w.carol, applicationId);
+    _check("both links are on record — one revoked, one active",
+        links.links.length == 2 && links.links.filter(l => !l.revoked_at).length == 1, JSON.stringify(links.links));
+
+    // withdrawal — the correctness proof for _projectAsync's override
+    const withdrawApplied = await recruitment.applyAsync({org_id: w.org_id, actor_person_id: w.carol,
+        requisition_id: requisition.requisition_id, full_name: "Withdraw Test", email: `withdraw.${w.stamp}@example.invalid`});
+    const withdrawLink = await recruitment.generatePortalLinkAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: withdrawApplied.application_id});
+    await recruitment.portalWithdrawAsync({token: withdrawLink.token, reason: "Accepted another offer."});
+
+    const withdrawnStatus = await recruitment.portalStatusAsync(withdrawLink.token);
+    _check("the portal itself reflects withdrawal", withdrawnStatus.terminal?.kind == "withdrawn" &&
+        withdrawnStatus.terminal.reason == "Accepted another offer.", JSON.stringify(withdrawnStatus.terminal));
+
+    const withdrawnLegal = await recruitment.legalActionsAsync(w.org_id, w.carol, withdrawApplied.application_id);
+    _check("legalActionsAsync refuses everything once withdrawn — no code in that function changed to make this true",
+        withdrawnLegal.terminal?.kind == "withdrawn" && withdrawnLegal.current_rounds.length == 0, JSON.stringify(withdrawnLegal));
+    await _checkThrows("no transition can be recorded on a withdrawn application", _ =>
+        recruitment.recordTransitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+            application_id: withdrawApplied.application_id, round_id: "r1", kind: "advanced"}));
+
+    const withdrawnRecord = await recruitment.candidateRecordAsync(w.org_id, w.carol, withdrawApplied.application_id);
+    _check("the internal K5 drawer shows withdrawal too, via the same _projectAsync refactor",
+        withdrawnRecord.terminal?.kind == "withdrawn", JSON.stringify(withdrawnRecord.terminal));
+
+    const board = await recruitment.pipelineBoardAsync(w.org_id, w.carol, requisition.requisition_id);
+    _check("a withdrawn application is absent from the live board — correct-but-invisible, not shown as stuck progress",
+        !board.columns.some(c => c.cards.some(card => card.application_id == withdrawApplied.application_id)) &&
+        !board.held.some(card => card.application_id == withdrawApplied.application_id) &&
+        !board.rejected.some(r => r.application_id == withdrawApplied.application_id) &&
+        !board.completed.some(c => c.application_id == withdrawApplied.application_id));
+
+    await _checkThrows("withdrawing an already-withdrawn application is refused", _ =>
+        recruitment.portalWithdrawAsync({token: withdrawLink.token, reason: "Again."}));
+}
+
+/**
  * Walks a fresh candidate all the way to a completed pipeline: r1 -> r2a +
  * r2b in parallel (both scored high so r3's condition, score < 3, never
  * triggers) -> r4. Returns the application_id, ready for an offer.
@@ -876,9 +988,9 @@ async function _buildWorld() {
 
 async function _cleanup(w) {
     if (!w?.org_id) return;
-    for (const table of ["offer_approval", "offer_version", "panel_assignment", "scorecard", "stage_transition",
-        "application", "candidate", "requisition", "workflow_pointer", "workflow_version", "time_entry_event",
-        "working_window", "leave_request"])
+    for (const table of ["offer_approval", "offer_version", "candidate_portal_link", "panel_assignment", "scorecard",
+        "stage_transition", "application", "candidate", "requisition", "workflow_pointer", "workflow_version",
+        "time_entry_event", "working_window", "leave_request"])
         await dblayer.runCmdBestEffortAsync(`DELETE FROM ${table} WHERE org_id=?`, [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM audit_event WHERE org_id=?", [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM role_capability WHERE org_id=?", [w.org_id]);

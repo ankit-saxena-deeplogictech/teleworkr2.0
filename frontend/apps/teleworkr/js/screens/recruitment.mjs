@@ -37,7 +37,7 @@ export async function render(root) {
         canPublishWorkflow: caps.includes("workflow.publish"), canCreate: caps.includes("requisition.create"),
         canApprove: caps.includes("requisition.approve"), canRecord: caps.includes("stage_transition.record"),
         canScore: caps.includes("scorecard.submit"), canSchedule: caps.includes("panel.schedule"),
-        canOffer: caps.includes("offer.approve"),
+        canOffer: caps.includes("offer.approve"), canManagePortal: caps.includes("candidate_portal.manage"),
         composerOpen: false, workflowDraft: null, requisitionDraft: null,
         selectedRequisitionId: null, selectedApplicationId: null, addCandidateOpen: false,
         reschedulingPanelId: null, roster: null, offerComposerOpen: false, analyticsWorkflowCode: null};
@@ -554,9 +554,10 @@ function _wireAddCandidate(root) {
 async function _renderDrawer(root) {
     const holder = root.querySelector("#rc-drawer");
     holder.innerHTML = `<div class="tr-card mt2">${states.loading({rows: 3})}</div>`;
-    const [record, legal] = await Promise.all([
+    const [record, legal, portalLinks] = await Promise.all([
         _rest("candidate", {application_id: state.selectedApplicationId}),
-        _rest("legal_actions", {application_id: state.selectedApplicationId})]);
+        _rest("legal_actions", {application_id: state.selectedApplicationId}),
+        state.canManagePortal ? _rest("portal_links", {application_id: state.selectedApplicationId}) : Promise.resolve({links: []})]);
     if (!record || !legal) return;
     if (state.canSchedule && !state.roster)
         state.roster = (await _call(API_CALENDAR, "roster", {date: _today()}))?.roster || [];
@@ -591,8 +592,11 @@ async function _renderDrawer(root) {
             }).join("<span class=\"sm t3\">→</span>")}
         </div>
         ${record.terminal ? `<div class="tr-note">${record.terminal.kind == "completed" ?
-            "Completed the whole pipeline." : `Rejected at ${states.esc(record.workflow.find(r => r.id == record.terminal.round_id)?.title || record.terminal.round_id)} — ${states.esc(record.terminal.reason)}`}</div>` : ""}
+            "Completed the whole pipeline." : record.terminal.kind == "withdrawn" ?
+            `Withdrew${record.terminal.reason ? ` — ${states.esc(record.terminal.reason)}` : ""}` :
+            `Rejected at ${states.esc(record.workflow.find(r => r.id == record.terminal.round_id)?.title || record.terminal.round_id)} — ${states.esc(record.terminal.reason)}`}</div>` : ""}
         ${_offerSectionHtml(record)}
+        ${state.canManagePortal ? _portalLinkHtml(portalLinks.links) : ""}
 
         ${legal.current_rounds.map(round => _currentRoundHtml(round, record)).join("")}
 
@@ -624,6 +628,15 @@ async function _renderDrawer(root) {
 
     for (const roundBlock of holder.querySelectorAll("[data-round-actions]")) _wireCurrentRound(roundBlock, root, record);
     _wireOfferSection(holder, root, record);
+
+    holder.querySelector("[data-rc=\"generate-portal-link\"]")?.addEventListener("click", async _ => {
+        const result = await _rest("generate_portal_link", {application_id: state.selectedApplicationId});
+        if (result) {states.toast({message: "Link generated — copy it and send it to the candidate yourself."}); _renderDrawer(root);}
+    });
+    holder.querySelector("[data-rc=\"revoke-portal-link\"]")?.addEventListener("click", async _ => {
+        const result = await _rest("revoke_portal_link", {link_id: holder.querySelector("[data-rc=\"revoke-portal-link\"]").getAttribute("data-id")});
+        if (result) {states.toast({message: "Revoked."}); _renderDrawer(root);}
+    });
 }
 
 function _currentRoundHtml(round, record) {
@@ -869,6 +882,24 @@ function _wireCurrentRound(block, root, record) {
 }
 
 // -- K8: the offer, once the candidate has passed every round --
+
+/** K9: the candidate's magic link — a recruiter copies and sends it themselves; this app sends no email. */
+function _portalLinkHtml(links) {
+    const active = links.find(link => !link.revoked_at);
+    return `<div class="up t3">Candidate portal</div>
+        <div class="tr-panel">
+            ${active ? `<div class="sm">Active${active.last_used_at ?
+                    ` · last opened ${new Date(active.last_used_at*1000).toLocaleDateString()}` : " · not opened yet"}</div>
+                <div class="row wrap" style="gap:6px">
+                    <input class="inp grow" readonly value="${states.esc(_portalUrl(active.token))}" onclick="this.select()">
+                    <button class="btn sm" data-rc="revoke-portal-link" data-id="${states.esc(active.link_id)}">Revoke</button>
+                </div>` :
+                `<div class="sm t3">No active link. This app sends no email — copy the generated link and send it to the candidate yourself.</div>
+                <button class="btn sm" data-rc="generate-portal-link">Generate link</button>`}
+        </div>`;
+}
+
+const _portalUrl = token => `${APP_CONSTANTS.PORTAL_HTML}?token=${encodeURIComponent(token)}`;
 
 function _offerSectionHtml(record) {
     if (record.terminal?.kind != "completed") return "";

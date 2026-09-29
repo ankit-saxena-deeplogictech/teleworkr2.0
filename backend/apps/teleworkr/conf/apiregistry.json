@@ -18,6 +18,7 @@
     "/apps/{{app}}/notifications" : "/apis/notifications.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/training" : "/apis/training.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/certverify" : "/apis/training.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=false",
+    "/apps/{{app}}/portal" : "/apis/portal.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=false",
     "/apps/{{app}}/surveys" : "/apis/surveys.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/recruitment" : "/apis/recruitment.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",
     "/apps/{{app}}/wellbeing" : "/apis/wellbeing.js?get=true&keys=fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389&needsToken=true&checkClaims=id,org",

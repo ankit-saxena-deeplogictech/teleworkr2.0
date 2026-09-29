@@ -197,6 +197,21 @@ exports.doService = async jsonReq => {
                     {requisition_id: jsonReq.requisition_id, from_date: jsonReq.from_date, to_date: jsonReq.to_date});
                 return {...CONSTANTS.TRUE_RESULT, ...result};
             }
+            case "generate_portal_link": {
+                const result = await recruitment.generatePortalLinkAsync({org_id: jsonReq.org,
+                    actor_person_id: actor.person_id, application_id: jsonReq.application_id});
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
+            case "revoke_portal_link": {
+                const result = await recruitment.revokePortalLinkAsync({org_id: jsonReq.org,
+                    actor_person_id: actor.person_id, link_id: jsonReq.link_id});
+                return {...CONSTANTS.TRUE_RESULT, result};
+            }
+            case "portal_links": {
+                const result = await recruitment.portalLinksForApplicationAsync(jsonReq.org, actor.person_id,
+                    jsonReq.application_id);
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
             default: return CONSTANTS.FALSE_RESULT;
         }
     } catch (err) {
@@ -215,6 +230,6 @@ const OPS = ["publish_workflow", "workflows", "raise_requisition", "approve_requ
     "apply", "board", "candidate", "legal_actions", "transition", "scorecard",
     "update_candidate", "schedule_panel", "reschedule_panel", "panel_outcome", "interviewer_load",
     "build_offer", "approve_offer", "send_offer", "offer_viewed", "negotiate_offer", "offer_outcome", "offers",
-    "funnel", "analytics_overview"];
+    "funnel", "analytics_overview", "generate_portal_link", "revoke_portal_link", "portal_links"];
 
 const validateRequest = jsonReq => jsonReq && OPS.includes(jsonReq.op) && jsonReq.id && jsonReq.org;
