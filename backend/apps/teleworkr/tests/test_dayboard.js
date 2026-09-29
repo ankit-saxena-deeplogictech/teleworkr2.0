@@ -163,13 +163,13 @@ async function _testMeetingsAndFocusAreHonest(w) {
 async function _testNeedsYou(w) {
     LOG.console("\n needs-you: capped at five, sorted by who is awake\n");
     const mine = [];
-    for (let i = 0; i < 7; i++) mine.push(await tasks.createTaskAsync({org_id: w.org_id,
+    for (let i = 0; i < 9; i++) mine.push(await tasks.createTaskAsync({org_id: w.org_id,
         actor_person_id: w.dave, title: `Needs-you source ${i}`, assignee_person_id: w.alice}));
 
-    // dave (awake) blocks two, erin (asleep) blocks two, more than the five-item cap between them
-    for (let i = 0; i < 4; i++) await tasks.addBlockAsync({org_id: w.org_id,
+    // dave (awake) blocks three, erin (asleep) blocks three — six raw events, more than either cap
+    for (let i = 0; i < 6; i++) await tasks.addBlockAsync({org_id: w.org_id,
         actor_person_id: (i % 2 == 0) ? w.dave : w.erin, blocked_task_ref: mine[i].task_ref,
-        blocker_task_ref: mine[i+4]?.task_ref || mine[6].task_ref,
+        blocker_task_ref: mine[i+3].task_ref,
         reason: `blocker ${i}`});
 
     const board = await dayboard.boardAsync({org_id: w.org_id, person_id: w.alice, date: DAY});
@@ -183,6 +183,14 @@ async function _testNeedsYou(w) {
         firstAsleepIndex == -1 || board.needs_you.items.slice(0, firstAsleepIndex)
             .every(item => item.other_availability?.online_now),
         `awake=${awakeCount}, firstAsleepAt=${firstAsleepIndex}`);
+
+    // B4: the same backlog, uncapped — needs_you is a view onto it, not a separate fetch
+    _check("the board's full brief is not capped to five — B4 sees the whole backlog",
+        board.brief.items.length > 5, String(board.brief.items.length));
+    _check("needs_you's five are drawn from the same items the full brief carries",
+        board.needs_you.items.every(item => board.brief.items.includes(item)));
+    _check("the full brief carries the summary and suggested_order needs_you never surfaced",
+        Boolean(board.brief.summary) && Array.isArray(board.brief.suggested_order));
 }
 
 async function _testPresence(w) {
@@ -216,8 +224,8 @@ async function _testAPI(w) {
     const email = `alice.${w.stamp}@example.invalid`;
     const result = await dayboardapi.doService({op: "board", id: email, org: w.org_id, date: DAY});
     _check("op board returns the whole screen in one call",
-        result.result && result.clock && result.due_today && result.needs_you && result.presence && result.week,
-        result.reason);
+        result.result && result.clock && result.due_today && result.needs_you && result.presence && result.week &&
+        result.brief, result.reason);
 
     const unknown = await dayboardapi.doService({op: "board", id: "nobody@example.invalid", org: w.org_id});
     _check("an unprovisioned caller is refused with a reason", !unknown.result && Boolean(unknown.reason));

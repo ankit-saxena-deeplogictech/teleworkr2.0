@@ -39,10 +39,10 @@ exports.boardAsync = async function(request) {
     const {org_id, person_id} = request;
     const day = request.date || _today();
 
-    const [session, dueToday, needsYou, presence, week] = await Promise.all([
+    const [session, dueToday, brief_, presence, week] = await Promise.all([
         clock.sessionAsync(org_id, person_id, day),
         _dueTodayAsync(org_id, person_id, day),
-        _needsYouAsync(org_id, person_id),
+        brief.briefAsync({org_id, person_id}),
         _presenceAsync(org_id, person_id, day),
         _weekAsync(org_id, person_id, day)
     ]);
@@ -55,7 +55,9 @@ exports.boardAsync = async function(request) {
         // honest zero — no calendar-event entity exists yet (see module note)
         meetings: {count: 0, next: null, reason: "not_tracked"},
         focus: {minutes: null, reason: "not_tracked"},
-        needs_you: needsYou,
+        needs_you: _needsYouFrom(brief_),
+        // B4's own full, uncapped card — needs_you above is the same backlog, capped and reordered for C1
+        brief: brief_,
         presence,
         week
     };
@@ -102,9 +104,12 @@ async function _dueTodayAsync(org_id, person_id, day) {
  * buckets, capped to five and reordered so the person whose window is open now
  * comes first. C1 and B4 read the same backlog; B4 opens the day with it, C1
  * keeps it visible without a page change.
+ *
+ * Takes the already-assembled brief rather than fetching its own — briefAsync
+ * runs several queries, and boardAsync now fetches it once for both this capped
+ * widget and the full uncapped card (see boardAsync's own `brief` field).
  */
-async function _needsYouAsync(org_id, person_id) {
-    const assembled = await brief.briefAsync({org_id, person_id});
+function _needsYouFrom(assembled) {
     if (assembled.state == "chronological") return {state: "chronological", items: assembled.items.slice(0, NEEDS_YOU_CAP)};
 
     const items = [...assembled.items].sort((a, b) => {

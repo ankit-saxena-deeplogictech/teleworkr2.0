@@ -21,7 +21,10 @@ import {session} from "/framework/js/session.mjs";
 import {states} from "../states.mjs";
 import {taskPicker} from "../../components/task-picker/task-picker.mjs";
 
-const API_DAYBOARD = "dayboard", API_CLOCK = "clock", API_TASKS = "tasks";
+const API_DAYBOARD = "dayboard", API_CLOCK = "clock", API_TASKS = "tasks", API_WINDOWS = "windows";
+
+const BUCKET_ORDER = ["blocks_you", "needs_reply", "moved", "decided"];
+const BUCKET_LABELS = {blocks_you: "Blocks you", needs_reply: "Needs a reply", moved: "Moved", decided: "Decided"};
 
 const _me = _ => ({id: session.get(APP_CONSTANTS.USERID)?.toString(),
     org: session.get(APP_CONSTANTS.USERORG)?.toString()});
@@ -46,7 +49,10 @@ export async function render(root) {
         return;
     }
 
+    const briefHtml = await _briefSectionHtml(board);
+
     root.innerHTML = `<div class="page day-board">
+        ${briefHtml}
         ${_workingOn(board)}
         ${_todayStrip(board)}
         <div class="db-grid">
@@ -57,6 +63,7 @@ export async function render(root) {
     </div>`;
 
     _wire(root, board);
+    _wireBrief(root, board);
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +142,157 @@ function _needsYou(board) {
             </div>
         </div>`).join("")}</div>
     </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// B4 — the full daily brief card. A one-shot arrival card, not a screen: the
+// same backlog "Needs you" already shows capped to five, here in full, once
+// per day, dismissible, never blocking.
+// ---------------------------------------------------------------------------
+
+const _briefDismissKey = board => `teleworkr_brief_dismissed_${board.date}`;
+
+async function _briefSectionHtml(board) {
+    if (board.clock.state == "not_clocked_in") return "";
+
+    let dismissed = false;
+    try {dismissed = sessionStorage.getItem(_briefDismissKey(board)) == "1";} catch (err) {}
+    if (dismissed) return `<div class="row" style="justify-content:flex-end">
+        <button class="btn sm" data-b4="reopen">↺ Brief dismissed — reopen</button>
+    </div>`;
+
+    const {shell} = await import("../shell.mjs");
+    const myName = shell.projection?.person?.display_name;
+    const brief = board.brief;
+
+    if (brief.state == "quiet") return `<div class="row" style="justify-content:space-between;align-items:center">
+        <span class="t2 sm">Quiet night — nothing came in while you were away.</span>
+        <button class="btn sm" data-b4="dismiss">Dismiss</button>
+    </div>`;
+
+    if (brief.state == "chronological") return `<div class="db-card">
+        <div class="row wrap" style="justify-content:space-between;align-items:flex-start;gap:10px">
+            <div>
+                <div class="up t3">${states.esc(_greeting(myName))}</div>
+                <p class="t2 sm" style="margin-top:4px">${brief.items.length} thing${brief.items.length==1?"":"s"} while you were away, in time order —
+                    your working hours aren't declared, so ranking by who's awake isn't available.
+                    <a data-b4="declare-window" style="cursor:pointer">Declare them</a>.</p>
+            </div>
+            <button class="btn sm" data-b4="dismiss">Dismiss</button>
+        </div>
+        <div class="db-list" style="margin-top:12px">${brief.items.map(_briefRowHtml).join("")}</div>
+    </div>`;
+
+    const topSuggestion = brief.suggested_order?.[0];
+    const topItem = topSuggestion ? brief.items.find(item => item.task_ref == topSuggestion.task_ref) : null;
+    const overlapLine = topItem?.by_person_id ? await _overlapLineFor(board, topItem, shell) : null;
+
+    return `<div class="db-card">
+        <div class="row wrap" style="justify-content:space-between;align-items:flex-start;gap:10px">
+            <div>
+                <div class="up t3">${states.esc(_greeting(myName))}</div>
+                <h3 style="margin-top:6px">${brief.items.length} thing${brief.items.length==1?"":"s"} while you were away</h3>
+                <p class="t2 sm">clocked in at ${states.esc(_clockTime(board.clock.running?.started_at))}</p>
+            </div>
+            <div class="row" style="gap:8px">
+                <button class="btn sm" data-b4="dismiss">Dismiss</button>
+                ${topSuggestion ? `<button class="btn sm pri" data-b4="start" data-task="${states.esc(topSuggestion.task_ref)}">
+                    Start on ${states.esc(topSuggestion.task_ref)}</button>` : ""}
+            </div>
+        </div>
+        <div class="db-grid db-grid-brief" style="margin-top:14px">
+            <div>${BUCKET_ORDER.map(bucket => _bucketSectionHtml(brief, bucket)).join("")}</div>
+            <div>
+                <div class="db-card" style="padding:12px">
+                    <div class="up t3">Today at a glance</div>
+                    <p class="sm" style="margin-top:6px">${states.esc(_glanceLine(board))}</p>
+                    ${overlapLine ? `<p class="sm t3" style="margin-top:4px">${states.esc(overlapLine)}</p>` : ""}
+                </div>
+                ${brief.suggested_order?.length ? `<div class="db-card" style="margin-top:10px;padding:12px">
+                    <div class="up t3">Suggested order</div>
+                    <ol class="sm" style="margin-top:8px;padding-left:18px">${brief.suggested_order.map((suggestion, index) =>
+                        `<li data-b4-suggestion="${index}" style="margin-top:4px">${states.esc(suggestion.action)}
+                            <button class="btn sm" data-b4="not-useful" style="margin-left:6px;padding:1px 6px">Not useful</button></li>`).join("")}
+                    </ol>
+                </div>` : ""}
+            </div>
+        </div>
+    </div>`;
+}
+
+function _bucketSectionHtml(brief, bucket) {
+    const items = brief.items.filter(item => item.bucket == bucket);
+    if (!items.length) return "";
+    return `<div style="margin-bottom:14px">
+        <div class="up t3">${states.esc(BUCKET_LABELS[bucket])}</div>
+        <div class="db-list">${items.map(_briefRowHtml).join("")}</div>
+    </div>`;
+}
+
+function _briefRowHtml(item) {
+    return `<div class="db-row">
+        <span class="db-dot ${item.other_availability?.online_now?"awake":""}"></span>
+        <div class="grow">
+            <div class="sm">${states.esc(item.why)}</div>
+            <div class="xs t3">${states.esc(item.by_name)}${item.task_ref?` · ${states.esc(item.task_ref)}`:""} · ${states.esc(_ago(item.at))}</div>
+        </div>
+    </div>`;
+}
+
+function _glanceLine(board) {
+    const summary = board.brief.summary;
+    const parts = [board.meetings.reason=="not_tracked" ? "Meetings not tracked yet" : `${board.meetings.count} meetings`];
+    if (summary.blocked_tasks) parts.push(`${summary.blocked_tasks} of your tasks blocked`);
+    parts.push(`${summary.due_today} due today`);
+    if (summary.overdue) parts.push(`${summary.overdue} overdue`);
+    return parts.join(" · ");
+}
+
+/** A real, computed fact or nothing — never a fabricated meeting/overlap guess. */
+async function _overlapLineFor(board, topItem, shell) {
+    const myId = shell.projection?.person?.person_id;
+    if (!myId) return null;
+    let response; try {
+        response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/${API_WINDOWS}`, "GET",
+            {op: "team_overlap", person_ids: [myId, topItem.by_person_id], date: board.date, ..._me()}, true);
+    } catch (err) {response = null;}
+    if (!response?.result || !response.span) return null;
+    return `Your overlap with ${topItem.by_name} closes at ${_minutesToClock(response.span.to)}.`;
+}
+
+function _greeting(name) {
+    const hour = new Date().getHours();
+    const part = hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening";
+    return `Good ${part}${name ? `, ${name}` : ""}`;
+}
+
+const _clockTime = epochSeconds => epochSeconds ?
+    new Date(epochSeconds*1000).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"}) : "—";
+const _minutesToClock = epochMinutes =>
+    new Date(epochMinutes*60000).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"});
+
+function _wireBrief(root, board) {
+    root.querySelector('[data-b4="dismiss"]')?.addEventListener("click", _ => {
+        try {sessionStorage.setItem(_briefDismissKey(board), "1");} catch (err) {}
+        render(root);
+    });
+    root.querySelector('[data-b4="reopen"]')?.addEventListener("click", _ => {
+        try {sessionStorage.removeItem(_briefDismissKey(board));} catch (err) {}
+        render(root);
+    });
+    root.querySelector('[data-b4="declare-window"]')?.addEventListener("click", async _ => {
+        const {shell} = await import("../shell.mjs"); shell.setSurface("windows");
+    });
+    root.querySelector('[data-b4="start"]')?.addEventListener("click", async _ => {
+        const taskRef = root.querySelector('[data-b4="start"]').getAttribute("data-task");
+        const switched = await apiman.rest(`${APP_CONSTANTS.API_PATH}/${API_CLOCK}`, "GET",
+            {op: "switch", task_ref: taskRef, ..._me()}, true);
+        if (!switched?.result) {states.toast({message: switched?.reason || "Could not switch the clock."}); return;}
+        states.toast({message: `Clock moved to ${taskRef}.`});
+        render(root);
+    });
+    for (const button of root.querySelectorAll('[data-b4="not-useful"]'))
+        button.addEventListener("click", _ => button.closest("li")?.remove());
 }
 
 function _presence(board) {
