@@ -78,7 +78,7 @@ const CATALOGUE = Object.freeze({
     "requisition.approve": {label: "Approve a requisition", scopes: [SCOPES.ORG, SCOPES.TEAM], always_audited: true},
     "candidate.read": {label: "Read candidate records", scopes: [SCOPES.TEAM, SCOPES.ORG]},
     "person_data.export": {label: "Export another person's data", scopes: [SCOPES.DIRECT_REPORTS, SCOPES.REPORTING_LINE, SCOPES.ORG],
-        step_up: true, always_audited: true},
+        step_up: true, always_audited: true, action_requires_reason: true},
     "data.manage_requests": {label: "Manage data-subject requests and legal holds", scopes: [SCOPES.ORG], always_audited: true},
     "data.erase": {label: "Execute an erasure", scopes: [SCOPES.ORG],
         step_up: true, always_audited: true, irreversible: true, action_requires_reason: true},

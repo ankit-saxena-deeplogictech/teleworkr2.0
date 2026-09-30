@@ -1,11 +1,13 @@
 /**
  * L3 — data governance: export, retention & erasure. Admin-facing throughout
- * (data.manage_requests or data.erase, matching the surface's own gate in
- * shell.js) — the export button, retention table and access log this screen
- * doesn't duplicate already live on H5 (disclosure.mjs), which is every
- * person's own "download everything" / "what your manager sees" screen.
- * This screen is the other half: the DPO's request queue, legal holds, and
- * the one thing nothing in the app could do before it — execute an erasure.
+ * (data.manage_requests/data.erase/person_data.export, matching the surface's
+ * own gate in shell.js). H5 (disclosure.mjs) stays every person's own
+ * "download everything" / "what your manager sees" screen, self only — this
+ * screen is the other half: the DPO's request queue, legal holds, executing
+ * an erasure, and now exporting *someone else's* record for whoever holds
+ * person_data.export (a manager/HR/admin DSAR fulfilment action — no
+ * wireframe ever mocked this specific screen, designed from the capability's
+ * own label plus this screen's existing erasure-tab pattern).
  *
  * (C) 2026 TekMonks. All rights reserved.
  * License: See the enclosed LICENSE file.
@@ -15,7 +17,7 @@ import {apimanager as apiman} from "/framework/js/apimanager.mjs";
 import {session} from "/framework/js/session.mjs";
 import {states} from "../states.mjs";
 
-const API = "data", API_CALENDAR = "calendar";
+const API = "data", API_CALENDAR = "calendar", API_DISCLOSURE = "disclosure";
 const _me = _ => ({id: session.get(APP_CONSTANTS.USERID)?.toString(),
     org: session.get(APP_CONSTANTS.USERORG)?.toString()});
 const _today = _ => new Date().toISOString().substring(0, 10);
@@ -26,7 +28,7 @@ let state = null;
 /** Renders the screen. @param {HTMLElement} root */
 export async function render(root) {
     state = {root, tab: "requests", roster: null, requestFormOpen: false, holdFormOpen: false,
-        erasePersonId: "", preview: null};
+        erasePersonId: "", preview: null, exportPersonId: ""};
     await _view();
 }
 
@@ -37,6 +39,7 @@ async function _view() {
             <button class="tr-tab${state.tab == "requests" ? " on" : ""}" data-dg="tab" data-tab="requests">Requests</button>
             <button class="tr-tab${state.tab == "erasure" ? " on" : ""}" data-dg="tab" data-tab="erasure">Erasure</button>
             <button class="tr-tab${state.tab == "holds" ? " on" : ""}" data-dg="tab" data-tab="holds">Legal holds</button>
+            <button class="tr-tab${state.tab == "export" ? " on" : ""}" data-dg="tab" data-tab="export">Export</button>
         </div>
         <div class="tr-view" id="dg-view"></div>
     </div>`;
@@ -48,6 +51,7 @@ async function _view() {
         if (!state.roster) state.roster = (await _call(API_CALENDAR, "roster", {date: _today()}))?.roster || [];
         if (state.tab == "erasure") return await _erasure(view);
         if (state.tab == "holds") return await _holds(view);
+        if (state.tab == "export") return await _export(view);
         return await _requests(view);
     } catch (err) {
         view.innerHTML = states.error({title: "Couldn't load data governance", what: err.message,
@@ -285,6 +289,64 @@ function _wireNewHold(root, holds) {
         const result = await _rest("place_hold", {person_id, entity, reason});
         if (result) {states.toast({message: "Hold placed."}); state.holdFormOpen = false; await _holds(root);}
     });
+}
+
+// ---------------------------------------------------------------------------
+// Export — another person's data, for whoever holds person_data.export
+// ---------------------------------------------------------------------------
+
+function _export(root) {
+    root.innerHTML = `
+        <div class="row wrap" style="gap:6px">
+            <select class="inp" id="dg-export-person">
+                <option value="">Select a person…</option>
+                ${state.roster.map(p => `<option value="${states.esc(p.person_id)}"${
+                    p.person_id == state.exportPersonId ? " selected" : ""}>${states.esc(p.display_name)}</option>`).join("")}
+            </select>
+        </div>
+        <div class="tr-card" style="margin-top:10px">
+            <div class="row wrap" style="gap:6px">
+                <input class="inp grow" id="dg-export-reason" placeholder="Reason (required)">
+            </div>
+            <div class="row wrap" style="gap:6px;margin-top:6px">
+                <label class="sm t3"><input type="checkbox" id="dg-export-stepup"> I have re-authenticated for this action</label>
+                <button class="btn pri" data-dg="do-export">Export</button>
+            </div>
+            <div class="sm t3" style="margin-top:6px">Downloads their full record as a JSON file — the same
+                bundle they can download themselves from their own "What your manager sees" screen. Always
+                logged as a signature, with the reason.</div>
+        </div>`;
+
+    root.querySelector("[data-dg=\"do-export\"]").addEventListener("click", async _ => {
+        const person_id = root.querySelector("#dg-export-person").value;
+        const reason = root.querySelector("#dg-export-reason").value.trim();
+        const step_up_verified = root.querySelector("#dg-export-stepup").checked;
+        if (!person_id) {states.toast({message: "Select a person first."}); return;}
+        if (!reason) {states.toast({message: "A reason is required."}); return;}
+        if (!step_up_verified) {states.toast({message: "Confirm re-authentication before exporting."}); return;}
+
+        const personName = _nameOf(person_id);
+        const confirmed = await states.confirmAction({title: `Export ${personName}'s data?`,
+            body: "Their full record downloads as a JSON file, and this is recorded in the audit log with your name and the reason.",
+            confirmLabel: "Export"});
+        if (!confirmed) return;
+
+        state.exportPersonId = person_id;
+        const response = await _call(API_DISCLOSURE, "export_other", {person_id, reason, step_up_verified: true});
+        if (!response) return;
+        const {result, ...bundle} = response;   // the raw API envelope never belongs in the downloaded file
+        _downloadBundle(bundle, person_id);
+        states.toast({message: `${personName}'s data exported.`});
+    });
+}
+
+function _downloadBundle(bundle, person_id) {
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], {type: "application/json"});
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `teleworkr-person-data-${person_id}-${_today()}.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
 }
 
 // ---------------------------------------------------------------------------

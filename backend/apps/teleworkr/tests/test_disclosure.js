@@ -47,6 +47,7 @@ exports.runTestsAsync = async function(argv) {
         await _testMirror(w);
         await _testRetention(w);
         await _testExport(w);
+        await _testExportOther(w);
         await _testAPI(w);
     } catch (err) {
         failed++; LOG.console(`  FAIL  disclosure tests threw: ${err}\n`); LOG.error(`Disclosure tests threw: ${err.stack}`);
@@ -183,6 +184,45 @@ async function _testExport(w) {
         disclosure.exportMyDataAsync({org_id: w.org_id, person_id: "ghost-person"}));
 }
 
+async function _testExportOther(w) {
+    LOG.console("\n exporting another person's data (person_data.export)\n");
+
+    await _checkThrows("an actor with no person_data.export grant is refused", _ =>
+        disclosure.exportPersonDataAsync({org_id: w.org_id, actor_person_id: w.erin,
+            person_id: w.alice, reason: "test", step_up_verified: true}));
+
+    await _checkThrows("a lead's scope does not cover someone outside their direct reports", _ =>
+        disclosure.exportPersonDataAsync({org_id: w.org_id, actor_person_id: w.bob,
+            person_id: w.carol, reason: "test", step_up_verified: true}));
+
+    const bundle = await disclosure.exportPersonDataAsync({org_id: w.org_id, actor_person_id: w.bob,
+        person_id: w.alice, reason: "DSAR fulfilment", step_up_verified: true});
+    _check("a lead exporting their report's data gets the same bundle shape self-export produces",
+        bundle.person?.email == w.aliceEmail && bundle.time_entries.length == 2 &&
+        bundle.tasks.some(row => row.task_ref == "TASK-1"), JSON.stringify(Object.keys(bundle)));
+
+    await _checkThrows("no reason is refused, naming the capability", _ =>
+        disclosure.exportPersonDataAsync({org_id: w.org_id, actor_person_id: w.bob,
+            person_id: w.alice, step_up_verified: true}));
+
+    await _checkThrows("no step-up is refused even with the right capability and a reason", _ =>
+        disclosure.exportPersonDataAsync({org_id: w.org_id, actor_person_id: w.bob,
+            person_id: w.alice, reason: "test"}));
+
+    const signature = await dblayer.getQueryOrThrow(
+        "SELECT * FROM audit_event WHERE org_id=? AND action='person_data.exported' AND subject_person_id=?",
+        [w.org_id, w.alice]);
+    _check("the export is a signature in the audit log, with its reason",
+        signature.length == 1 && signature[0].actor_person_id == w.bob &&
+        signature[0].reason == "DSAR fulfilment", JSON.stringify(signature));
+    _check("the action name lands in H4's own export category (ends in .exported)",
+        signature[0].action.endsWith(".exported"));
+
+    const carolExport = await disclosure.exportPersonDataAsync({org_id: w.org_id, actor_person_id: w.carol,
+        person_id: w.erin, reason: "org-wide DSAR", step_up_verified: true});
+    _check("HR's org-wide scope covers anyone, not just direct reports", carolExport.person?.person_id == w.erin);
+}
+
 async function _testAPI(w) {
     LOG.console("\n the disclosure API\n");
     const log = await disclosureapi.doService({op: "access_log", id: w.aliceEmail, org: w.org_id});
@@ -204,6 +244,16 @@ async function _testAPI(w) {
 
     const exported = await disclosureapi.doService({op: "export", id: w.aliceEmail, org: w.org_id});
     _check("op export answers with the bundle", exported.result === true && Boolean(exported.person));
+
+    const exportedOther = await disclosureapi.doService({op: "export_other", id: w.bobEmail, org: w.org_id,
+        person_id: w.alice, reason: "DSAR fulfilment", step_up_verified: true});
+    _check("op export_other answers with the named person's bundle",
+        exportedOther.result === true && exportedOther.person?.email == w.aliceEmail);
+
+    const refusedOther = await disclosureapi.doService({op: "export_other", id: w.erinEmail, org: w.org_id,
+        person_id: w.alice, reason: "test", step_up_verified: true});
+    _check("op export_other is refused through the API too, for an actor with no grant",
+        refusedOther.result === false && /person_data.export/.test(refusedOther.reason||""));
 
     const unknown = await disclosureapi.doService({op: "retention", id: "nobody@example.invalid", org: w.org_id});
     _check("an unknown actor is refused", unknown.result === false && /No person/.test(unknown.reason||""));
@@ -233,6 +283,7 @@ async function _buildWorld() {
     await permissions.assignRoleAsync(org.org_id, people.dave.person_id, "admin", from);
 
     return {org_id: org.org_id, aliceEmail: `alice.${stamp}@example.invalid`,
+        bobEmail: `bob.${stamp}@example.invalid`, erinEmail: `erin.${stamp}@example.invalid`,
         ...Object.fromEntries(Object.entries(people).map(([k, v]) => [k, v.person_id]))};
 }
 

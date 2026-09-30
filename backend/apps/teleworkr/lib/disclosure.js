@@ -26,6 +26,7 @@ const entityshapes = require(`${TELEWORKR_CONSTANTS.LIBDIR}/entityshapes.js`);
 const time = require(`${TELEWORKR_CONSTANTS.LIBDIR}/time.js`);
 const windows = require(`${TELEWORKR_CONSTANTS.LIBDIR}/windows.js`);
 const tasks = require(`${TELEWORKR_CONSTANTS.LIBDIR}/tasks.js`);
+const audit = require(`${TELEWORKR_CONSTANTS.LIBDIR}/audit.js`);
 
 const _now = _ => Math.floor(Date.now()/1000);
 const _today = _ => new Date().toISOString().substring(0, 10);
@@ -196,7 +197,17 @@ exports.retentionAsync = async _ => Object.entries(entityshapes.REGISTER)
  * @returns {object} The bundle
  */
 exports.exportMyDataAsync = async function(request) {
-    const {org_id, person_id} = request;
+    return await _exportBundleAsync(request.org_id, request.person_id);
+}
+
+/**
+ * The bundle itself — shared by the self-service export above and
+ * exportPersonDataAsync below, so the two paths can never produce different
+ * shapes for the same person. A plain read, deliberately not exec-aware: it
+ * must never run inside audit.performAsync's own transaction, or it deadlocks
+ * the same way the M3 evaluator once did (this file's own lesson, reused).
+ */
+async function _exportBundleAsync(org_id, person_id) {
     const person = await spine.getPersonAsync(person_id);
     if (!person) throw new Error(`Person ${person_id} was not found.`);
 
@@ -233,6 +244,33 @@ exports.exportMyDataAsync = async function(request) {
         timesheet_entries: timesheetEntries, audit_entries_about_me: auditEntries,
         tasks: myTasks, comments: myComments, leave_requests: leaveRequests, leave_ledger: leaveLedger,
         wellbeing_signals: signalLedger, wiki_pages: wikiPages};
+}
+
+/**
+ * Exports another person's record — the manager/HR/admin half of export,
+ * gated on person_data.export. The read happens entirely outside any
+ * transaction (see _exportBundleAsync's own note); audit.performAsync is
+ * used only to write the signature afterward.
+ *
+ * @param {object} request {org_id, actor_person_id, person_id, reason, step_up_verified}
+ * @returns {object} The same bundle shape exportMyDataAsync produces
+ * @throws If the actor's grant does not cover this person, or no reason is given
+ */
+exports.exportPersonDataAsync = async function(request) {
+    const {org_id, actor_person_id, person_id, reason, step_up_verified} = request;
+    await permissions.requireAsync({org_id, actor_person_id,
+        capability: "person_data.export", subject_person_id: person_id});
+
+    const bundle = await _exportBundleAsync(org_id, person_id);
+
+    await audit.performAsync({
+        org_id, actor_person_id, capability: "person_data.export", subject_person_id: person_id,
+        reason, step_up_verified,
+        audit: {action: "person_data.exported", object_type: "person", object_ref: person_id,
+            subject_person_id: person_id, reason, detail: {}},
+        action: async _exec => "exported"});
+
+    return bundle;
 }
 
 exports.VIEWS = VIEWS;
