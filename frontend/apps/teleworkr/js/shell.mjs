@@ -75,6 +75,7 @@ const CATEGORY_META = {
 
 let projection = null, currentSurface = null, clockState = null, clockTimer = null, pollTimer = null;
 let notifTimer = null, notifTab = "feed";
+let wizardStep = 1, wizardSkipped = false, wizardTimezone = null, wizardRoster = null;
 
 const _me = _ => ({id: session.get(APP_CONSTANTS.USERID)?.toString(),
     org: session.get(APP_CONSTANTS.USERORG)?.toString()});
@@ -92,6 +93,16 @@ async function initShell() {
 
     if (!await refreshProjection()) return;
 
+    // B2: first sign-in, no working window declared yet. Skippable — the
+    // ongoing nag lives in the banner projectAsync now populates, not in
+    // anything this wizard itself persists.
+    if (projection.window_declared === false && !wizardSkipped) {_renderFirstRunWizard(); return;}
+
+    await _enterShell();
+}
+
+/** The normal shell's own boot tail — shared by initShell and the wizard's Skip/Finish paths. */
+async function _enterShell() {
     _renderIdentity(); _renderTabs(); _renderMeMenu(); _renderBanners();
     await _refreshClock();
     pollTimer = setInterval(_refreshClock, CLOCK_POLL_MS);
@@ -213,6 +224,160 @@ function _renderOrgBootstrap(loginResponse) {
         window.location.reload();
     });
 }
+
+/**
+ * B2 — first sign-in, no working window declared yet. Two screens, matching
+ * the wireframe's own layout: identity/timezone confirmation, then the
+ * window form and the tracking disclosure shown together (one grid, not
+ * sequential pages). Skippable from either — the ongoing reminder lives in
+ * the banner projectAsync already populates when no window exists, so
+ * skipping here loses nothing permanent.
+ */
+function _renderFirstRunWizard() {
+    if (wizardStep == 1) return _renderWizardStep1();
+    return _renderWizardStep2();
+}
+
+function _renderWizardStep1() {
+    const root = document.querySelector("#surface");
+    document.querySelector("#tabs").innerHTML = "";
+    const person = projection.person || {};
+    if (!wizardTimezone) wizardTimezone = person.home_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    root.innerHTML = `<div class="page">
+        <div class="orgboot">
+            <div class="up t3">TeleWorkr · first sign-in</div>
+            <h2>Welcome, ${states.esc(person.display_name || person.email || "")}</h2>
+            <p class="t2 sm">${states.esc(person.email || "")}</p>
+            <div class="orgboot-form">
+                <label class="col sm t3" style="grid-column:1/-1">Timezone
+                    <input class="inp" id="wz-tz" value="${states.esc(wizardTimezone)}"></label>
+                <button class="btn pri" id="wz-continue">Continue</button>
+                <button class="btn" id="wz-skip">Skip — you can finish later</button>
+            </div>
+        </div>
+    </div>`;
+
+    root.querySelector("#wz-continue").addEventListener("click", _ => {
+        wizardTimezone = root.querySelector("#wz-tz").value.trim() || wizardTimezone;
+        wizardStep = 2; _renderFirstRunWizard();
+    });
+    root.querySelector("#wz-skip").addEventListener("click", _ => {wizardSkipped = true; _enterShell();});
+}
+
+async function _renderWizardStep2() {
+    const root = document.querySelector("#surface");
+    root.innerHTML = `<div class="page">${states.loading({rows: 4})}</div>`;
+    if (!wizardRoster) {
+        const response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/calendar`, "GET",
+            {op: "roster", date: new Date().toISOString().substring(0,10), ..._me()}, true);
+        wizardRoster = response?.roster || [];
+    }
+
+    root.innerHTML = `<div class="page">
+        <div class="up t3">TeleWorkr · first sign-in</div>
+        <h2 style="margin-top:4px">Your working window</h2>
+        <p class="t2 sm">Declaring it is what makes the overlap board, send-later and your own capacity view work.</p>
+        <div class="row wrap" style="gap:14px;margin-top:14px;align-items:flex-start">
+            <div class="tr-card" style="flex:1;min-width:280px">
+                <div class="up t3">Hours</div>
+                <div class="row wrap" style="gap:8px;margin-top:8px">
+                    <input class="inp" id="wz-start" type="time" value="09:00" style="width:110px">
+                    <span class="sm t3">to</span>
+                    <input class="inp" id="wz-end" type="time" value="17:30" style="width:110px">
+                </div>
+                <div class="sm t3" style="margin-top:6px">Timezone</div>
+                <input class="inp" id="wz-window-tz" value="${states.esc(wizardTimezone)}" style="margin-top:4px;width:100%">
+                <div class="sm t3" style="margin-top:8px">Days</div>
+                <div class="row wrap" style="gap:4px;margin-top:4px">
+                    ${[1,2,3,4,5,6,7].map(d => `<label class="sm"><input type="checkbox" data-wz-day="${d}"${d<=5?" checked":""}> ${["M","T","W","T","F","S","S"][d-1]}</label>`).join("")}
+                </div>
+                <div class="sm t3" style="margin-top:8px" id="wz-target"></div>
+                <button class="btn sm" id="wz-preview" style="margin-top:10px">Preview against the team</button>
+                <div class="sm" id="wz-preview-result" style="margin-top:6px"></div>
+            </div>
+            <div class="tr-card" style="flex:1;min-width:280px">
+                <div class="up t3">What TeleWorkr records</div>
+                <div class="sm" style="margin-top:8px">
+                    <div class="row" style="gap:8px"><span class="chip">Yes</span><span class="grow">Clock in and out times, and which task the timer is on</span></div>
+                    <div class="row" style="gap:8px;margin-top:6px"><span class="chip">Yes</span><span class="grow">Which apps you launch from TeleWorkr, and when</span></div>
+                    <div class="row" style="gap:8px;margin-top:6px"><span class="chip">Yes</span><span class="grow">Idle periods over 10 minutes — you always get to keep or discard them</span></div>
+                    <div class="row" style="gap:8px;margin-top:6px"><span class="chip warn">No</span><span class="grow">Screenshots, keystrokes, your screen, or anything outside TeleWorkr</span></div>
+                    <div class="row" style="gap:8px;margin-top:6px"><span class="chip warn">No</span><span class="grow">Your location beyond the timezone you set above</span></div>
+                </div>
+                <div class="sm t3" style="margin-top:10px">Your manager sees weekly totals and task time — not minute-by-minute activity.</div>
+            </div>
+        </div>
+        <div class="row wrap" style="gap:8px;margin-top:14px">
+            <button class="btn" id="wz-back">Back</button>
+            <button class="btn pri" id="wz-finish">I understand — finish setup</button>
+            <button class="btn" id="wz-skip">Skip — you can finish later</button>
+        </div>
+    </div>`;
+
+    const paintTarget = _ => {
+        const start = _wzMinutes(root.querySelector("#wz-start").value), end = _wzMinutes(root.querySelector("#wz-end").value);
+        const span = end > start ? end - start : (1440 - start) + end;
+        root.querySelector("#wz-target").textContent = `Daily target: ${Math.floor(span/60)}h ${String(span%60).padStart(2,"0")}m`;
+    };
+    root.querySelector("#wz-start").addEventListener("input", paintTarget);
+    root.querySelector("#wz-end").addEventListener("input", paintTarget);
+    paintTarget();
+
+    root.querySelector("#wz-back").addEventListener("click", _ => {wizardStep = 1; _renderFirstRunWizard();});
+    root.querySelector("#wz-skip").addEventListener("click", _ => {wizardSkipped = true; _enterShell();});
+
+    root.querySelector("#wz-preview").addEventListener("click", async _ => {
+        const myId = projection.person?.person_id, managerId = projection.employment?.manager_person_id;
+        const siblings = wizardRoster.filter(p => p.manager_person_id == managerId && p.person_id != myId);
+        const cohort = (siblings.length ? siblings : wizardRoster.filter(p => p.person_id != myId)).slice(0, 3);
+        const result = root.querySelector("#wz-preview-result");
+        if (!cohort.length) {result.textContent = "No colleagues to compare against yet."; return;}
+        result.textContent = "Checking…";
+
+        // Reads colleagues' own already-declared hours rather than simulating the
+        // form's unsaved values — team_overlap only ever reads from the database,
+        // and there is nothing to preview against for someone who hasn't saved yet.
+        const response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/windows`, "GET",
+            {op: "team_overlap", person_ids: cohort.map(p => p.person_id),
+                date: new Date().toISOString().substring(0,10), ..._me()}, true);
+        if (!response?.result) {result.textContent = "Couldn't check right now."; return;}
+
+        const declared = response.per_person.filter(p => p.workday && p.span);
+        if (!declared.length) {
+            result.textContent = `${cohort.length} nearby colleague${cohort.length==1?"":"s"}, none with hours declared yet.`;
+            return;
+        }
+        result.innerHTML = declared.map(p => {
+            const name = cohort.find(c => c.person_id == p.person_id)?.display_name || p.person_id;
+            return `${states.esc(name)}: ${_wzClock(p.span.from)}–${_wzClock(p.span.to)} ${states.esc(p.timezone)}`;
+        }).join("<br>");
+    });
+
+    root.querySelector("#wz-finish").addEventListener("click", async _ => {
+        const days = [...root.querySelectorAll("[data-wz-day]:checked")].map(b => Number(b.getAttribute("data-wz-day")));
+        if (!days.length) {states.toast({message: "Pick at least one working day."}); return;}
+        const timezone = root.querySelector("#wz-window-tz").value.trim();
+        const button = root.querySelector("#wz-finish");
+        button.disabled = true;
+        const response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/windows`, "GET",
+            {op: "set", timezone, start_minute: _wzMinutes(root.querySelector("#wz-start").value),
+                end_minute: _wzMinutes(root.querySelector("#wz-end").value), days,
+                valid_from: new Date().toISOString().substring(0,10), ..._me()}, true);
+        if (!response?.result) {
+            button.disabled = false;
+            states.toast({message: response?.reason || "Could not save your working window."});
+            return;
+        }
+        states.toast({message: "Working window set."});
+        await refreshProjection();
+        await _enterShell();
+    });
+}
+
+const _wzMinutes = hhmm => {const [h, m] = (hhmm||"0:0").split(":").map(Number); return h*60 + (m||0);};
+const _wzClock = epochMinutes =>
+    new Date(epochMinutes*60000).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"});
 
 /**
  * Switches the visible surface. Refuses to open one the projection does not

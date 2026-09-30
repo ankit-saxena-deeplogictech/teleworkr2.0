@@ -18,6 +18,7 @@ const permissions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/permissions.js`);
 const capabilities = require(`${TELEWORKR_CONSTANTS.LIBDIR}/capabilities.js`);
 const shell = require(`${TELEWORKR_CONSTANTS.LIBDIR}/shell.js`);
 const shellapi = require(`${TELEWORKR_CONSTANTS.APIDIR}/shell.js`);
+const windows = require(`${TELEWORKR_CONSTANTS.LIBDIR}/windows.js`);
 
 const TODAY = "2026-06-15";
 let passed = 0, failed = 0;
@@ -47,6 +48,7 @@ exports.runTestsAsync = async function(argv) {
         w = await _buildWorld();
         await _testCatalogue(w);
         await _testProjection(w);
+        await _testWindowDeclaration(w);
         await _testHidingIsNotAuthorization(w);
         await _testNoEmployment(w);
         await _testOrgMissing(w);
@@ -178,6 +180,28 @@ async function _testProjection(w) {
     await permissions.revokeAsync(deny.grant_id);
 }
 
+// ---------------------------------------------------------------------------
+// B2: the first-run signal
+// ---------------------------------------------------------------------------
+
+async function _testWindowDeclaration(w) {
+    LOG.console("\n the first-run signal: window_declared and its banner\n");
+    const before = await shell.projectAsync({org_id: w.org_id, person_id: w.alice, asOf: TODAY});
+    _check("nobody who hasn't declared a window sees window_declared:true",
+        before.window_declared === false);
+    _check("the ongoing nag is a real banner, same shape as the other two cases",
+        before.banners.length == 1 && before.banners[0].source == "window_missing" &&
+        before.banners[0].level == "degraded" && Boolean(before.banners[0].what_to_do),
+        JSON.stringify(before.banners));
+
+    await windows.setWindowAsync({org_id: w.org_id, person_id: w.alice, timezone: "Europe/London",
+        start_minute: 540, end_minute: 1020, days: [1,2,3,4,5], valid_from: "2026-01-01"});
+
+    const after = await shell.projectAsync({org_id: w.org_id, person_id: w.alice, asOf: TODAY});
+    _check("declaring a window flips the signal", after.window_declared === true);
+    _check("and the nag banner is gone", after.banners.length == 0, JSON.stringify(after.banners));
+}
+
 async function _testHidingIsNotAuthorization(w) {
     LOG.console("\n hiding is a courtesy, the refusal is the control\n");
     const employee = await shell.projectAsync({org_id: w.org_id, person_id: w.alice, asOf: TODAY});
@@ -266,7 +290,7 @@ async function _testAPI(w) {
 
 async function _cleanup(w) {
     if (!w?.org_id) return;
-    for (const table of ["role_capability", "role", "capability_grant", "employment", "org"])
+    for (const table of ["working_window", "role_capability", "role", "capability_grant", "employment", "org"])
         await dblayer.runCmdBestEffortAsync(`DELETE FROM ${table} WHERE org_id=?`, [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM audit_event WHERE org_id=?", [w.org_id]);
     for (const who of ["alice", "bob", "carol", "dave", "frank"])

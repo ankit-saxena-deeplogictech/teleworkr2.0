@@ -23,6 +23,7 @@
 const spine = require(`${TELEWORKR_CONSTANTS.LIBDIR}/spine.js`);
 const permissions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/permissions.js`);
 const capabilities = require(`${TELEWORKR_CONSTANTS.LIBDIR}/capabilities.js`);
+const windows = require(`${TELEWORKR_CONSTANTS.LIBDIR}/windows.js`);
 
 /**
  * A7 classifies every screen, because the classification decides where the gating
@@ -227,6 +228,12 @@ exports.projectAsync = async function(request) {
         .map(([id, surface]) => ({id, label: surface.label, tab: surface.tab||null,
             console: surface.console||null, screen: surface.screen, classification: surface.classification}));
 
+    // B2: the first-run signal. Not a separate "onboarding complete" flag —
+    // there is no such thing anywhere in this schema — the question the shell
+    // actually needs answered is simply whether a working window exists yet,
+    // since half the product (E3/E4/the send window) runs on it either way.
+    const openWindow = await windows.getOpenWindowAsync(org_id, person_id);
+
     return {
         person: _person(person),
         employment: {status: employment.status, jurisdiction: employment.jurisdiction,
@@ -238,9 +245,12 @@ exports.projectAsync = async function(request) {
         home: _home(heldSet, visible),
         // A7 publishes coverage per role so "what is this person's product" is answerable
         coverage: {visible: visible.length, total: Object.keys(SURFACES).length},
+        window_declared: Boolean(openWindow),
         // A2's system banner slot. Sources attach here as integrations land; an
         // empty list means nothing is degraded, never that nothing was checked.
-        banners: []
+        banners: openWindow ? [] : [{level: "degraded", source: "window_missing",
+            message: "Your working window isn't declared yet — the overlap board, send-later and your own capacity view all run on it.",
+            what_to_do: "Declare it from Working hours & travel."}]
     };
 }
 
