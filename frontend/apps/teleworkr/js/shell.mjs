@@ -36,6 +36,8 @@ import {render as renderSecurity} from "./screens/security.mjs";
 import {render as renderAudit} from "./screens/audit.mjs";
 import {render as renderWindows} from "./screens/windows.mjs";
 import {render as renderApprovals} from "./screens/approvals.mjs";
+import {render as renderWorkload} from "./screens/workload.mjs";
+import {render as renderReports} from "./screens/reports.mjs";
 
 const API_SHELL = "shell", API_CLOCK = "clock", API_NOTIF = "notifications";
 
@@ -50,7 +52,8 @@ const SCREENS = {day: renderDayBoard, training: renderTraining, trainingtrack: r
     team: renderTeam, calendar: renderCalendar, leave: renderLeave, people: renderPeople,
     me: renderDisclosure, recruitment: renderRecruitment, wellbeing: renderWellbeing, wiki: renderWiki,
     permissions: renderAccess, data: renderData, identity: renderIdentity, security: renderSecurity,
-    audit: renderAudit, windows: renderWindows, approvals: renderApprovals};
+    audit: renderAudit, windows: renderWindows, approvals: renderApprovals,
+    workload: renderWorkload, reports: renderReports};
 const CLOCK_POLL_MS = 30000;        // the server is the record; the local tick is only the seconds between polls
 const NOTIF_POLL_MS = 60000;
 const THEME_KEY = "__teleworkr_theme";

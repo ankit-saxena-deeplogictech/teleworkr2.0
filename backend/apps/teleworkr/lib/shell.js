@@ -129,6 +129,14 @@ const SURFACES = Object.freeze({
     security: {console: "Me", label: "Sessions & security", screen: "L4", order: 76, classification: CLASS.SHARED,
         capability: "session.read_own"},
 
+    // Team board & workload (H1) and Reports (H2): the lead's own view of
+    // their direct reports — GATED, not EXCLUSIVE, since "lead" is not an
+    // admin-tier role. Lives under "Me" the same way approvals does.
+    workload: {console: "Me", label: "Team workload", screen: "H1", order: 77, classification: CLASS.GATED,
+        capability: "workload.read"},
+    reports: {console: "Me", label: "Reports", screen: "H2", order: 78, classification: CLASS.GATED,
+        capability: "workload.read"},
+
     // Wiki (N): its own console, the same way "Leave" and "Assigned" exist
     // for their sections — TABS is a frozen 5-slot header (day/tasks/
     // calendar/timeline/team), so this cannot be a bare tab.
