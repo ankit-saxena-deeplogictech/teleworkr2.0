@@ -20,8 +20,9 @@ import {apimanager as apiman} from "/framework/js/apimanager.mjs";
 import {session} from "/framework/js/session.mjs";
 import {states} from "../states.mjs";
 import {taskPicker} from "../../components/task-picker/task-picker.mjs";
+import {gapFiller} from "../../components/gap-filler/gap-filler.mjs";
 
-const API_DAYBOARD = "dayboard", API_CLOCK = "clock", API_TASKS = "tasks", API_WINDOWS = "windows";
+const API_DAYBOARD = "dayboard", API_CLOCK = "clock", API_TASKS = "tasks", API_WINDOWS = "windows", API_TIME = "time";
 
 const BUCKET_ORDER = ["blocks_you", "needs_reply", "moved", "decided"];
 const BUCKET_LABELS = {blocks_you: "Blocks you", needs_reply: "Needs a reply", moved: "Moved", decided: "Decided"};
@@ -49,12 +50,13 @@ export async function render(root) {
         return;
     }
 
-    const briefHtml = await _briefSectionHtml(board);
+    const [briefHtml, reconstructHtml] = await Promise.all([_briefSectionHtml(board), _reconstructCardHtml(board)]);
 
     root.innerHTML = `<div class="page day-board">
         ${briefHtml}
         ${_workingOn(board)}
         ${_todayStrip(board)}
+        ${reconstructHtml}
         <div class="db-grid">
             ${_needsYou(board)}
             ${_presence(board)}
@@ -63,6 +65,10 @@ export async function render(root) {
     </div>`;
 
     _wire(root, board);
+    root.querySelector('[data-db="reconstruct"]')?.addEventListener("click", async _ => {
+        const changed = await gapFiller.open({date: board.date});
+        if (changed) render(root);
+    });
     _wireBrief(root, board);
 }
 
@@ -122,6 +128,28 @@ function _todayStrip(board) {
         <span class="dot"></span>
         <span>${states.esc(dueLabel)}${board.due_today.overdue_count ?
             ` <span class="t3">(${board.due_today.overdue_count} overdue)</span>` : ""}</span>
+    </div>`;
+}
+
+/**
+ * C3, narrowed to the one real signal this app has (the timer, against the
+ * declared window) — omitted entirely when there's no window or no gaps,
+ * never shown with a hollow "0 gaps" state.
+ */
+async function _reconstructCardHtml(board) {
+    if (board.clock.state == "not_clocked_in") return "";
+    let response; try {
+        response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/${API_TIME}`, "GET",
+            {op: "gaps", entry_date: board.date, ..._me()}, true);
+    } catch (err) {response = null;}
+    if (!response?.result || !response.window || !response.gaps.length) return "";
+
+    return `<div class="db-card" style="border-color:var(--dawn)">
+        <div class="row" style="justify-content:space-between;align-items:center">
+            <div><div class="up t3">Reconstruct my day</div>
+                <p class="t2 sm" style="margin-top:4px">${response.gaps.length} gap${response.gaps.length==1?"":"s"} the timer doesn't cover today.</p></div>
+            <button class="btn sm" data-db="reconstruct">Open</button>
+        </div>
     </div>`;
 }
 

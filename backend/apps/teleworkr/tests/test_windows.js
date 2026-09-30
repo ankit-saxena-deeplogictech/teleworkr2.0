@@ -47,6 +47,7 @@ exports.runTestsAsync = async function(argv) {
         await _testOverlap(w);
         await _testDST(w);
         await _testDrift(w);
+        await _testWindowSpan(w);
         await _testAPI(w);
     } catch (err) {
         failed++; LOG.console(`  FAIL  windows tests threw: ${err}\n`); LOG.error(`Windows tests threw: ${err.stack}`);
@@ -256,6 +257,30 @@ async function _testDrift(w) {
 
     const undeclared = await windows.driftAsync(w.org_id, w.fred);
     _check("an undeclared person has nothing to drift from", undeclared.window === null);
+}
+
+// ---------------------------------------------------------------------------
+// C3: the window's epoch bounds, for the gap-finder
+// ---------------------------------------------------------------------------
+
+async function _testWindowSpan(w) {
+    LOG.console("\n the window's epoch bounds (C3)\n");
+    const alice = await windows.windowSpanForDateAsync(w.org_id, w.alice, WED);
+    _check("a plain window's bounds match its local hours in UTC",
+        alice.start_epoch == Date.parse("2026-06-17T14:00:00Z")/1000 &&
+        alice.end_epoch == Date.parse("2026-06-17T22:00:00Z")/1000, JSON.stringify(alice));
+    _check("the span names the window it came from", Boolean(alice.window_id));
+
+    const wrap = await windows.windowSpanForDateAsync(w.org_id, w.bob, "2026-07-22");
+    _check("a wrap (night-shift) window's bounds cross midnight correctly",
+        wrap.start_epoch == Date.parse("2026-07-23T01:00:00Z")/1000 &&
+        wrap.end_epoch == Date.parse("2026-07-23T09:00:00Z")/1000, JSON.stringify(wrap));
+
+    const offDay = await windows.windowSpanForDateAsync(w.org_id, w.alice, "2026-06-20");
+    _check("an off day has no span", offDay === null);
+
+    const undeclaredSpan = await windows.windowSpanForDateAsync(w.org_id, w.fred, WED);
+    _check("an undeclared person has no span", undeclaredSpan === null);
 }
 
 // ---------------------------------------------------------------------------

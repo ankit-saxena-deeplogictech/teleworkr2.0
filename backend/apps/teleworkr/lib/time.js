@@ -289,6 +289,88 @@ exports.weekStartOf = function(isoDate) {
 }
 
 // ---------------------------------------------------------------------------
+// C3 — the day-reconstruction gap-finder
+// ---------------------------------------------------------------------------
+
+/**
+ * The day's unaccounted gaps: the declared working window, minus whatever the
+ * timer ledger already covers. Never a gap out of time that hasn't happened
+ * yet — a gap only exists up to now, not up to the window's stated end.
+ *
+ * Takes the window span already resolved rather than requiring windows.js
+ * itself (windows.js already requires this file, for driftAsync's own read of
+ * the ledger — resolving the span at the caller avoids the cycle entirely).
+ *
+ * @param {string} org_id The org
+ * @param {string} person_id The person
+ * @param {string} date ISO date
+ * @param {object|null} windowSpan {start_epoch, end_epoch, window_id}, or null
+ *      when nothing is declared for this date (windows.windowSpanForDateAsync)
+ * @returns {object} {window, gaps, covered_seconds, window_seconds}
+ */
+exports.dayGapsAsync = async function(org_id, person_id, date, windowSpan) {
+    _assertISODate(date, "date");
+    if (!windowSpan) return {window: null, gaps: [], covered_seconds: 0, window_seconds: 0};
+
+    const end = Math.min(windowSpan.end_epoch, _now());
+    if (end <= windowSpan.start_epoch) return {window: windowSpan.window_id, gaps: [], covered_seconds: 0, window_seconds: 0};
+
+    const events = _currentEvents(await exports.eventsForDayAsync(org_id, person_id, date));
+    const intervals = events
+        .filter(event => event.started_at != null)
+        .map(event => [Math.max(event.started_at, windowSpan.start_epoch), Math.min(event.ended_at ?? _now(), end)])
+        .filter(([from, to]) => to > from)
+        .sort((a, b) => a[0] - b[0]);
+
+    const merged = [];
+    for (const [from, to] of intervals) {
+        const last = merged[merged.length-1];
+        if (last && from <= last[1]) last[1] = Math.max(last[1], to);
+        else merged.push([from, to]);
+    }
+
+    const gaps = [];
+    let cursor = windowSpan.start_epoch;
+    for (const [from, to] of merged) {
+        if (from > cursor) gaps.push({start_epoch: cursor, end_epoch: from});
+        cursor = Math.max(cursor, to);
+    }
+    if (cursor < end) gaps.push({start_epoch: cursor, end_epoch: end});
+
+    return {window: windowSpan.window_id, gaps,
+        covered_seconds: merged.reduce((sum, [from, to]) => sum + (to-from), 0),
+        window_seconds: end - windowSpan.start_epoch};
+}
+
+/**
+ * Fills one gap: a real entry, marked reconstructed, keeping the signal it
+ * came from — never a fabricated calendar/app-session provenance this app
+ * cannot back. Refused on an already-submitted/approved/locked week, the one
+ * explicit gate C3's own spec asks for (recordEventAsync itself has none — no
+ * business rule ever refuses to record time someone worked — so this is a
+ * gate specific to this tool, not a change to that primitive).
+ *
+ * @param {object} request {org_id, person_id, entry_date, started_at,
+ *      ended_at, task_ref, category, note, recorded_by}
+ * @returns The recorded entry
+ * @throws If the week is already submitted, approved or locked
+ */
+exports.fillGapAsync = async function(request) {
+    const {org_id, person_id, entry_date} = request;
+    const weekStart = exports.weekStartOf(entry_date);
+    const sheet = await _timesheetAsync(null, org_id, person_id, weekStart);
+    if (sheet && [STATUS.SUBMITTED, STATUS.APPROVED, STATUS.LOCKED].includes(sheet.status)) throw new Error(
+        `This week is already ${sheet.status}. Reconstructed entries can't be added to it.`);
+
+    return await exports.recordEventAsync({org_id, person_id, entry_date,
+        started_at: request.started_at, ended_at: request.ended_at,
+        task_ref: request.task_ref || null, category: request.category || null,
+        note: request.note || null, billable: !["break", "other"].includes(request.category),
+        source: "manual", reconstructed: true,
+        signal: JSON.stringify({type: "gap_fill", name: "self-assigned from a declared-window gap"})});
+}
+
+// ---------------------------------------------------------------------------
 // the timesheet
 // ---------------------------------------------------------------------------
 

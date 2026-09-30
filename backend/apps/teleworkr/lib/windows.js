@@ -294,6 +294,23 @@ exports.availabilityForDateAsync = async function(org_id, person_id, date) {
 }
 
 /**
+ * The window's epoch bounds on a date — C3's own question: what span should
+ * the timer ledger be measured against to find the day's unaccounted gaps.
+ * Null when there is nothing to measure against (undeclared, or an off day).
+ *
+ * @param {string} org_id The org
+ * @param {string} person_id The person
+ * @param {string} date ISO date
+ * @returns {object|null} {start_epoch, end_epoch, window_id}
+ */
+exports.windowSpanForDateAsync = async function(org_id, person_id, date) {
+    const availability = await exports.availabilityForDateAsync(org_id, person_id, date);
+    if (!availability.window || !availability.workday) return null;
+    const span = _utcSpan(availability.window, date);
+    return {start_epoch: span.from*60, end_epoch: span.to*60, window_id: availability.window.window_id};
+}
+
+/**
  * The A9 send-window engine: is this instant inside the person's declared
  * working window? Only two notification categories may breach a "no".
  *

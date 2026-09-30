@@ -20,6 +20,7 @@
 import {apimanager as apiman} from "/framework/js/apimanager.mjs";
 import {session} from "/framework/js/session.mjs";
 import {states} from "../states.mjs";
+import {gapFiller} from "../../components/gap-filler/gap-filler.mjs";
 
 const API_TIME = "time", API_CALENDAR = "calendar";
 const _me = _ => ({id: session.get(APP_CONSTANTS.USERID)?.toString(),
@@ -103,6 +104,10 @@ async function _view() {
     root.querySelector("[data-ts=\"next\"]").addEventListener("click", _ => _shift(7));
     root.querySelector("[data-ts=\"submit\"]")?.addEventListener("click", _ => _submit(root));
     _wireEdits(root, events);
+    for (const button of root.querySelectorAll("[data-ts=\"reconstruct\"]")) button.addEventListener("click", async _ => {
+        const changed = await gapFiller.open({date: button.getAttribute("data-date")});
+        if (changed) await _view();
+    });
 }
 
 function _daySection(label, date, events, editable) {
@@ -112,6 +117,7 @@ function _daySection(label, date, events, editable) {
             <span class="up t3">${label}</span>
             <span class="t3 xs">${states.esc(date)}</span>
             <span class="push"></span>
+            ${editable(date) ? `<button class="btn sm" data-ts="reconstruct" data-date="${states.esc(date)}">Reconstruct</button>` : ""}
             <span class="mono sm">${_hm(dayEvents.reduce((sum, e) => sum + _liveSeconds(e), 0))}</span>
         </div>
         ${dayEvents.length ? dayEvents.map(event => _entryRow(event, editable(date))).join("") :

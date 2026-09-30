@@ -50,3 +50,11 @@
 
 .ts-card { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--r-md);
     padding: 13px 15px; display: flex; flex-direction: column; gap: 6px; }
+
+/* ── C3: the gap-filler dialog (components/gap-filler), opened from here and from the Day board ── */
+.gap-filler { width: 560px; max-width: calc(100vw - 40px); text-align: left; }
+.gap-filler-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px;
+    max-height: 340px; overflow-y: auto; }
+.gap-filler-row { display: flex; align-items: center; gap: 8px; background: var(--raise);
+    border-radius: var(--r-md); padding: 9px 11px; }
+.gap-filler-row .mono { color: var(--dawn); }

@@ -15,6 +15,7 @@ const permissions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/permissions.js`);
 const time = require(`${TELEWORKR_CONSTANTS.LIBDIR}/time.js`);
 const timeapi = require(`${TELEWORKR_CONSTANTS.APIDIR}/time.js`);
 const notifications = require(`${TELEWORKR_CONSTANTS.LIBDIR}/notifications.js`);
+const windows = require(`${TELEWORKR_CONSTANTS.LIBDIR}/windows.js`);
 
 const BASE = 1750000000;    // unix seconds for fixed test instants
 const W0 = "2026-06-08";    // ledger week
@@ -50,6 +51,7 @@ exports.runTestsAsync = async function(argv) {
         await _testWeekLoop(w);
         await _testApproverRead(w);
         await _testApprovalQueue(w);
+        await _testDayGaps(w);
         await _testOtherPersonEdit(w);
         await _testAPI(w);
     } catch (err) {
@@ -397,6 +399,77 @@ async function _testApprovalQueue(w) {
         returnedSheet.timesheet.status == "returned" && returnedSheet.timesheet.return_reason == "needs task codes");
 
     await dblayer.runCmdBestEffortAsync("DELETE FROM person WHERE person_id=?", [frank.person_id]);
+}
+
+// ---------------------------------------------------------------------------
+// C3: the day's unaccounted gaps, and filling one
+// ---------------------------------------------------------------------------
+
+async function _testDayGaps(w) {
+    LOG.console("\n the day's unaccounted gaps (C3)\n");
+    const PAST_DAY = "2026-05-04", PARTIAL_DAY = "2026-05-05";   // a Mon/Tue safely in the past, own week
+
+    await windows.setWindowAsync({org_id: w.org_id, person_id: w.alice, timezone: "Etc/UTC",
+        start_minute: 540, end_minute: 1020, days: [1,2,3,4,5], valid_from: "2026-01-01"});
+
+    const spanPast = await windows.windowSpanForDateAsync(w.org_id, w.alice, PAST_DAY);
+    const emptyDay = await time.dayGapsAsync(w.org_id, w.alice, PAST_DAY, spanPast);
+    _check("an empty day is one gap spanning the whole window",
+        emptyDay.gaps.length == 1 && emptyDay.gaps[0].start_epoch == spanPast.start_epoch &&
+        emptyDay.gaps[0].end_epoch == spanPast.end_epoch, JSON.stringify(emptyDay));
+
+    await time.recordEventAsync({org_id: w.org_id, person_id: w.alice, entry_date: PAST_DAY,
+        client_event_id: "gap-full", task_ref: "TASK-G1", source: "timer",
+        started_at: spanPast.start_epoch, ended_at: spanPast.end_epoch});
+    const fullDay = await time.dayGapsAsync(w.org_id, w.alice, PAST_DAY, spanPast);
+    _check("a fully covered day has no gaps", fullDay.gaps.length == 0, JSON.stringify(fullDay));
+    _check("covered_seconds accounts for the whole window",
+        fullDay.covered_seconds == spanPast.end_epoch - spanPast.start_epoch);
+
+    const spanPartial = await windows.windowSpanForDateAsync(w.org_id, w.alice, PARTIAL_DAY);
+    await time.recordEventAsync({org_id: w.org_id, person_id: w.alice, entry_date: PARTIAL_DAY,
+        client_event_id: "gap-partial", task_ref: "TASK-G2", source: "timer",
+        started_at: spanPartial.start_epoch + 1800, ended_at: spanPartial.start_epoch + 1800 + 3600});
+    const partialDay = await time.dayGapsAsync(w.org_id, w.alice, PARTIAL_DAY, spanPartial);
+    _check("a partially covered day names exactly the uncovered remainder",
+        partialDay.gaps.length == 2 &&
+        partialDay.gaps[0].start_epoch == spanPartial.start_epoch &&
+        partialDay.gaps[0].end_epoch == spanPartial.start_epoch + 1800 &&
+        partialDay.gaps[1].start_epoch == spanPartial.start_epoch + 1800 + 3600 &&
+        partialDay.gaps[1].end_epoch == spanPartial.end_epoch, JSON.stringify(partialDay));
+
+    const noWindow = await time.dayGapsAsync(w.org_id, w.erin, PAST_DAY, null);
+    _check("no declared window means no gaps to compute, named plainly",
+        noWindow.window === null && noWindow.gaps.length == 0);
+
+    // never a gap out of time that hasn't happened yet — constructed directly
+    // rather than depending on today's own weekday, which the test can't control
+    const now = Math.floor(Date.now()/1000);
+    const futureSpan = {start_epoch: now - 3600, end_epoch: now + 36000, window_id: "future-test"};
+    const futureGaps = await time.dayGapsAsync(w.org_id, w.alice, PAST_DAY, futureSpan);
+    _check("a gap never extends past now even when the window's own end hasn't arrived",
+        futureGaps.gaps.every(gap => gap.end_epoch <= now), JSON.stringify(futureGaps));
+
+    const filled = await time.fillGapAsync({org_id: w.org_id, person_id: w.alice, entry_date: PARTIAL_DAY,
+        started_at: spanPartial.start_epoch, ended_at: spanPartial.start_epoch + 1800,
+        task_ref: "TASK-G3", note: "filled from the gap-finder"});
+    _check("filling a gap creates a real entry, marked reconstructed with an honest signal",
+        filled.reconstructed == 1 && JSON.parse(filled.signal).type == "gap_fill", JSON.stringify(filled));
+
+    const afterFill = await time.dayGapsAsync(w.org_id, w.alice, PARTIAL_DAY, spanPartial);
+    _check("the filled gap is gone, the other remains",
+        afterFill.gaps.length == 1 && afterFill.gaps[0].start_epoch == spanPartial.start_epoch + 1800 + 3600,
+        JSON.stringify(afterFill));
+
+    const brk = await time.fillGapAsync({org_id: w.org_id, person_id: w.alice, entry_date: PARTIAL_DAY,
+        started_at: spanPartial.start_epoch + 1800 + 3600, ended_at: spanPartial.end_epoch, category: "break"});
+    _check("a break fill needs no task and is not billable",
+        brk.billable == 0 && !brk.task_ref && brk.reconstructed == 1, JSON.stringify(brk));
+
+    await time.submitTimesheetAsync({org_id: w.org_id, person_id: w.alice, week_start: time.weekStartOf(PAST_DAY)});
+    await _checkThrows("filling a gap on an already-submitted week is refused, naming the status", _ =>
+        time.fillGapAsync({org_id: w.org_id, person_id: w.alice, entry_date: PAST_DAY,
+            started_at: spanPast.start_epoch, ended_at: spanPast.start_epoch + 600, task_ref: "TASK-G4"}));
 }
 
 // ---------------------------------------------------------------------------

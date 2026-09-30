@@ -15,12 +15,15 @@
  *  op - missing     - C7: the caller's direct reports with nothing submitted for a week
  *  op - approve_many - C7: approves several weeks, each its own signature
  *  op - return_many  - C7: returns several weeks with one shared reason
+ *  op - gaps        - C3: the caller's unaccounted gaps for a date
+ *  op - fill_gap    - C3: fills one gap, marked reconstructed with its signal
  *
  * (C) 2026 TekMonks. All rights reserved.
  */
 
 const spine = require(`${TELEWORKR_CONSTANTS.LIBDIR}/spine.js`);
 const time = require(`${TELEWORKR_CONSTANTS.LIBDIR}/time.js`);
+const windows = require(`${TELEWORKR_CONSTANTS.LIBDIR}/windows.js`);
 
 exports.doService = async jsonReq => {
     if (!validateRequest(jsonReq)) {LOG.error("Validation failure."); return CONSTANTS.FALSE_RESULT;}
@@ -113,6 +116,17 @@ const _dispatch = async jsonReq => {
             } catch (err) {failed.push({...item, reason: err.message});}
             return {...CONSTANTS.TRUE_RESULT, succeeded, failed};
         }
+        case "gaps": {
+            const span = await windows.windowSpanForDateAsync(jsonReq.org, actor.person_id, jsonReq.entry_date);
+            const gaps = await time.dayGapsAsync(jsonReq.org, actor.person_id, jsonReq.entry_date, span);
+            return {...CONSTANTS.TRUE_RESULT, ...gaps};
+        }
+        case "fill_gap": {
+            const entry = await time.fillGapAsync({org_id: jsonReq.org, person_id: actor.person_id,
+                entry_date: jsonReq.entry_date, started_at: jsonReq.started_at, ended_at: jsonReq.ended_at,
+                task_ref: jsonReq.task_ref, category: jsonReq.category, note: jsonReq.note});
+            return {...CONSTANTS.TRUE_RESULT, entry};
+        }
         default: return CONSTANTS.FALSE_RESULT;
     }
 }
@@ -125,7 +139,8 @@ const _actorAsync = async jsonReq => {
 }
 
 const validateRequest = jsonReq => jsonReq && ["record", "day", "week", "edit", "submit", "read_other", "return",
-    "approve", "pending", "missing", "approve_many", "return_many"].includes(jsonReq.op) && jsonReq.id && jsonReq.org;
+    "approve", "pending", "missing", "approve_many", "return_many", "gaps", "fill_gap"]
+    .includes(jsonReq.op) && jsonReq.id && jsonReq.org;
 
 /** The week's seven ISO dates, Monday first — return_many's whole-week default. */
 const _weekDates = weekStart => {
