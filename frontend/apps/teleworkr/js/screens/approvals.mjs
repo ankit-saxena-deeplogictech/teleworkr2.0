@@ -338,7 +338,7 @@ function _wire(root) {
     });
 }
 
-const _rest = (op, extra = {}) => _rest(op, extra);
+const _rest = (op, extra = {}) => _call(API_TIME, op, extra);
 
 async function _call(api, op, extra = {}) {
     let response;

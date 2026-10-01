@@ -138,6 +138,12 @@ const SURFACES = Object.freeze({
     reports: {console: "Me", label: "Reports", screen: "H2", order: 78, classification: CLASS.GATED,
         capability: "workload.read"},
 
+    // Apps (G1): the catalogue is SHARED — everyone can see what's available
+    // and request what they don't have. The approver and admin sections
+    // gate inside the screen from projection.capabilities, same as
+    // wellbeing/security/approvals.
+    apps: {console: "Me", label: "Apps", screen: "G1", order: 79, classification: CLASS.SHARED},
+
     // Wiki (N): its own console, the same way "Leave" and "Assigned" exist
     // for their sections — TABS is a frozen 5-slot header (day/tasks/
     // calendar/timeline/team), so this cannot be a bare tab.

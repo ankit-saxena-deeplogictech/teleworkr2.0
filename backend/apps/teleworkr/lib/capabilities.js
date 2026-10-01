@@ -141,7 +141,15 @@ const CATALOGUE = Object.freeze({
     "candidate_portal.manage": {label: "Generate and revoke candidate portal links", scopes: [SCOPES.ORG],
         always_audited: true},
     "offer.approve": {label: "Approve, send and record the outcome of an offer", scopes: [SCOPES.ORG],
-        always_audited: true}
+        always_audited: true},
+
+    // apps (G1) — the catalogue, self-service access requests, and the seats
+    // that make the launch log pay for itself (H3's own framing). Holding
+    // app.access.approve decides nothing by itself — a request's own named
+    // approver_person_id is the real per-row gate, the same split
+    // wiki.publish_public uses with wiki_space.public_approver_person_id.
+    "app.access.approve": {label: "Decide an app-access request named to you", scopes: [SCOPES.ORG], always_audited: true},
+    "app.catalogue.manage": {label: "Manage the app catalogue and seats", scopes: [SCOPES.ORG], always_audited: true}
 });
 
 /**
@@ -154,7 +162,7 @@ const BUILTIN_ROLES = Object.freeze({
     employee: {label: "Employee", capabilities: [
         ["time.read_own", SCOPES.SELF], ["timesheet.read", SCOPES.SELF], ["leave.request", SCOPES.SELF],
         ["audit.read_own", SCOPES.SELF], ["wellbeing.read_own", SCOPES.SELF], ["session.read_own", SCOPES.SELF],
-        ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG],
+        ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG], ["app.access.approve", SCOPES.ORG],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     lead: {label: "Team lead", capabilities: [
         ["time.read_own", SCOPES.SELF], ["timesheet.read", SCOPES.DIRECT_REPORTS], ["timesheet.approve", SCOPES.DIRECT_REPORTS],
@@ -163,7 +171,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["workload.read", SCOPES.DIRECT_REPORTS],
         ["audit.read_own", SCOPES.SELF], ["wellbeing.read_own", SCOPES.SELF], ["session.read_own", SCOPES.SELF],
         ["training.assign", SCOPES.DIRECT_REPORTS], ["training.track", SCOPES.DIRECT_REPORTS],
-        ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG],
+        ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG], ["app.access.approve", SCOPES.ORG],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     hr: {label: "HR", capabilities: [
         ["time.read_own", SCOPES.SELF], ["timesheet.read", SCOPES.ORG], ["timesheet.approve", SCOPES.DIRECT_REPORTS],
@@ -174,6 +182,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["audit.read_own", SCOPES.SELF], ["audit.read_policy", SCOPES.ORG],
         ["wellbeing.read_own", SCOPES.SELF], ["wellbeing.publish_signal", SCOPES.ORG], ["session.read_own", SCOPES.SELF],
         ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG], ["wiki.publish_public", SCOPES.ORG],
+        ["app.access.approve", SCOPES.ORG],
         ["data.manage_requests", SCOPES.ORG], ["data.erase", SCOPES.ORG],
         ["training.publish", SCOPES.ORG], ["training.assign", SCOPES.ORG], ["training.track", SCOPES.ORG],
         ["survey.publish", SCOPES.ORG],
@@ -191,6 +200,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["wiki.publish_public", SCOPES.ORG], ["wellbeing.read_own", SCOPES.SELF],
         ["wellbeing.publish_signal", SCOPES.ORG], ["workload.read", SCOPES.DIRECT_REPORTS],
         ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG],
+        ["app.access.approve", SCOPES.ORG], ["app.catalogue.manage", SCOPES.ORG],
         ["data.manage_requests", SCOPES.ORG], ["data.erase", SCOPES.ORG],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG], ["task.delete", SCOPES.ORG],
         ["people.import", SCOPES.ORG], ["leave.approve", SCOPES.ORG], ["leave_run.operate", SCOPES.ORG],
