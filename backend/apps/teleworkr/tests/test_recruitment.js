@@ -73,6 +73,7 @@ exports.runTestsAsync = async function(argv) {
         await _testIdempotency(w, requisition);
         await _testPanelScheduling(w, requisition);
         await _testCandidatePortal(w, requisition);
+        await _testCandidateRights(w, requisition);
         await _testOffers(w, workflow);
         await _testAnalytics(w);
     } catch (err) {
@@ -643,6 +644,58 @@ async function _testCandidatePortal(w, requisition) {
 
     await _checkThrows("withdrawing an already-withdrawn application is refused", _ =>
         recruitment.portalWithdrawAsync({token: withdrawLink.token, reason: "Again."}));
+}
+
+/** K12 slice 2: view/correct the submitted record, request deletion (pause), see who viewed it. */
+async function _testCandidateRights(w, requisition) {
+    LOG.console("\n K12 slice 2 — candidate rights\n");
+
+    const applied = await recruitment.applyAsync({org_id: w.org_id, actor_person_id: w.carol,
+        requisition_id: requisition.requisition_id, full_name: "Rights Test", phone: "0123456789",
+        email: `rights.${w.stamp}@example.invalid`, resume_ref: "https://example.invalid/resume.pdf"});
+    const link = await recruitment.generatePortalLinkAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: applied.application_id});
+
+    const record = await recruitment.portalMyRecordAsync(link.token);
+    _check("my_record carries what was submitted", record.full_name == "Rights Test" &&
+        record.phone == "0123456789" && record.resume_ref == "https://example.invalid/resume.pdf", JSON.stringify(record));
+    _check("my_record never carries scorecard-shaped content", !/scorecard|evidence|recommendation/i.test(JSON.stringify(record)));
+
+    await _checkThrows("correcting with no email is refused", _ =>
+        recruitment.portalUpdateRecordAsync({token: link.token, full_name: "Rights Test", email: "", phone: "0123456789"}));
+    await recruitment.portalUpdateRecordAsync({token: link.token, full_name: "Rights Test Corrected",
+        email: `rights.${w.stamp}@example.invalid`, phone: "9999999999", resume_ref: "https://example.invalid/resume-v2.pdf"});
+    const corrected = await recruitment.portalMyRecordAsync(link.token);
+    _check("the correction lands on the same fields", corrected.full_name == "Rights Test Corrected" &&
+        corrected.phone == "9999999999", JSON.stringify(corrected));
+
+    const beforeAccess = await recruitment.portalAccessLogAsync(link.token);
+    _check("nobody has viewed this record yet", beforeAccess.accesses.length == 0);
+    await recruitment.candidateRecordAsync(w.org_id, w.carol, applied.application_id);
+    const afterAccess = await recruitment.portalAccessLogAsync(link.token);
+    _check("a K5 read now shows up in the candidate's own access log",
+        afterAccess.accesses.some(a => a.actor_name && a.action == "candidate.accessed"), JSON.stringify(afterAccess));
+
+    // request deletion — the pause
+    await recruitment.portalRequestDeletionAsync({token: link.token, reason: "Changed my mind."});
+    await _checkThrows("a second concurrent deletion request is refused", _ =>
+        recruitment.portalRequestDeletionAsync({token: link.token, reason: "Again."}));
+
+    const pausedStatus = await recruitment.portalStatusAsync(link.token);
+    _check("the portal reflects the pause", pausedStatus.terminal?.kind == "deletion_pending" &&
+        pausedStatus.deletion_status.pending === true, JSON.stringify(pausedStatus));
+
+    const pausedLegal = await recruitment.legalActionsAsync(w.org_id, w.carol, applied.application_id);
+    _check("legalActionsAsync refuses every transition while a deletion request is pending — no code there changed",
+        pausedLegal.terminal?.kind == "deletion_pending" && pausedLegal.current_rounds.length == 0);
+    await _checkThrows("no transition can be recorded while a deletion request is pending", _ =>
+        recruitment.recordTransitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+            application_id: applied.application_id, round_id: "r1", kind: "advanced"}));
+
+    const board = await recruitment.pipelineBoardAsync(w.org_id, w.carol, requisition.requisition_id);
+    _check("the pending-deletion application is visible in its own board bucket, not just invisible like a withdrawal",
+        board.deletion_pending.some(c => c.application_id == applied.application_id &&
+            c.reason == "Changed my mind."), JSON.stringify(board.deletion_pending));
 }
 
 /**

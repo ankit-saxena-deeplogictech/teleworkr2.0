@@ -24,7 +24,7 @@ let state = null;
 
 /** Renders the portal. @param {HTMLElement} root */
 export async function render(root) {
-    state = {root};
+    state = {root, editingRecord: false, requestingDeletion: false};
     if (!token) {
         root.innerHTML = states.error({title: "This link is incomplete", what: "No token was found in the URL.",
             safe: "Check the link you were sent, or ask your recruiter for a new one.", actions: []});
@@ -36,13 +36,13 @@ export async function render(root) {
 async function _view() {
     const root = state.root;
     root.innerHTML = states.loading({rows: 4});
-    const result = await _rest("status");
-    if (!result) return;
-    _render(root, result);
+    const [status, myRecord, accessLog] = await Promise.all([_rest("status"), _rest("my_record"), _rest("access_log")]);
+    if (!status || !myRecord || !accessLog) return;
+    _render(root, status, myRecord, accessLog);
 }
 
-function _render(root, status) {
-    const {candidate, requisition, pipeline, next_round, terminal, consent_retain} = status;
+function _render(root, status, myRecord, accessLog) {
+    const {candidate, requisition, pipeline, next_round, terminal, consent_retain, deletion_status} = status;
     root.innerHTML = `
         <div class="portal-hero">
             <h1>${states.esc(requisition?.title || "Your application")}</h1>
@@ -70,9 +70,14 @@ function _render(root, status) {
             <p class="sm t3">One click. No justification needed.</p>
             <button class="btn danger sm" data-pt="withdraw">Withdraw my application</button>
         </div>` : ""}
+
+        ${_myRecordHtml(myRecord)}
+        ${_accessLogHtml(accessLog)}
+        ${_deletionHtml(deletion_status)}
+
         <p class="sm t3" style="margin-top:10px">This link is yours alone — don't forward it. Your recruiter can
             revoke it at any time.</p>`;
-    _wire(root, status);
+    _wire(root, status, myRecord, accessLog);
 }
 
 function _terminalHtml(terminal, consent_retain) {
@@ -83,6 +88,11 @@ function _terminalHtml(terminal, consent_retain) {
     if (terminal.kind == "withdrawn") return `<div class="tr-card">
         <div class="up t3">Withdrawn</div>
         <p class="sm">You withdrew this application${terminal.reason ? ` — ${states.esc(terminal.reason)}` : ""}.</p>
+    </div>`;
+    if (terminal.kind == "deletion_pending") return `<div class="tr-card">
+        <div class="up t3">Deletion requested</div>
+        <p class="sm">Your application is paused while your deletion request is reviewed. Nobody can act on it
+            until that's decided.</p>
     </div>`;
     return `<div class="tr-card" style="border-color:var(--ember)">
         <div class="up t3" style="color:var(--ember)">Not moving forward this time</div>
@@ -128,7 +138,67 @@ function _availabilityHtml(candidate) {
     </div>`;
 }
 
-function _wire(root, status) {
+/** K12 slice 2: what you submitted — never scorecards or evaluations, those stay with the hiring team. */
+function _myRecordHtml(record) {
+    if (!state.editingRecord) return `<div class="tr-card">
+        <div class="up t3">Your record</div>
+        <p class="sm">${states.esc(record.full_name)} · ${states.esc(record.email)}${record.phone ? ` · ${states.esc(record.phone)}` : ""}</p>
+        <p class="sm t3">Source: ${states.esc(record.source)}${record.resume_ref ? ` · Résumé: ${states.esc(record.resume_ref)}` : ""}
+            · Applied ${new Date(record.applied_at*1000).toLocaleDateString()}</p>
+        <button class="btn sm" data-pt="edit-record-open" style="margin-top:6px">Correct this</button>
+    </div>`;
+    return `<div class="tr-card">
+        <div class="up t3">Your record</div>
+        <div class="row wrap" style="gap:6px">
+            <input class="inp" id="pt-rec-name" placeholder="Full name" value="${states.esc(record.full_name)}">
+            <input class="inp" id="pt-rec-email" placeholder="Email" value="${states.esc(record.email)}">
+            <input class="inp" id="pt-rec-phone" placeholder="Phone" value="${states.esc(record.phone || "")}">
+            <input class="inp grow" id="pt-rec-resume" placeholder="Résumé link" value="${states.esc(record.resume_ref || "")}">
+        </div>
+        <div class="row wrap" style="gap:6px;margin-top:6px">
+            <button class="btn sm pri" data-pt="save-record">Save</button>
+            <button class="btn sm" data-pt="edit-record-cancel">Cancel</button>
+        </div>
+    </div>`;
+}
+
+/** K12 slice 2: "see who viewed it." */
+function _accessLogHtml(log) {
+    return `<div class="tr-card">
+        <div class="up t3">Who's viewed this</div>
+        ${log.accesses.length ? log.accesses.map(a => `<div class="sm t3" style="padding:3px 0">
+            ${states.esc(a.actor_name)} — ${a.count}× · last ${new Date(a.last_at*1000).toLocaleDateString()}</div>`).join("") :
+            `<p class="sm t3">Nobody has viewed your record yet.</p>`}
+    </div>`;
+}
+
+/** K12 slice 2: pauses the application rather than silently rejecting the candidate. */
+function _deletionHtml(status) {
+    if (status.pending) return `<div class="tr-card">
+        <div class="up t3">Deletion request</div>
+        <p class="sm">Pending review since ${new Date(status.requested_at*1000).toLocaleDateString()}.</p>
+    </div>`;
+    if (status.decision == "declined") return `<div class="tr-card">
+        <div class="up t3">Deletion request</div>
+        <p class="sm">Declined: ${states.esc(status.decision_reason || "")}</p>
+        <button class="btn sm" data-pt="delete-request-open" style="margin-top:6px">Request again</button>
+    </div>`;
+    if (!state.requestingDeletion) return `<div class="tr-card">
+        <div class="up t3">Delete my data</div>
+        <p class="sm t3">Pauses this application while HR reviews your request — never a silent rejection.</p>
+        <button class="btn danger sm" data-pt="delete-request-open" style="margin-top:6px">Request deletion</button>
+    </div>`;
+    return `<div class="tr-card">
+        <div class="up t3">Delete my data</div>
+        <div class="row wrap" style="gap:6px">
+            <input class="inp grow" id="pt-delete-reason" placeholder="Reason (optional)">
+            <button class="btn sm danger" data-pt="do-delete-request">Send request</button>
+            <button class="btn sm" data-pt="delete-request-cancel">Cancel</button>
+        </div>
+    </div>`;
+}
+
+function _wire(root, status, myRecord, accessLog) {
     root.querySelector("[data-pt=\"save-availability\"]")?.addEventListener("click", async _ => {
         const result = await _rest("update_availability", {timezone: root.querySelector("#pt-tz").value.trim() || undefined,
             availability_notes: root.querySelector("#pt-avail").value.trim() || undefined});
@@ -155,6 +225,36 @@ function _wire(root, status) {
         const scheduled_start = Math.floor(new Date(startVal).getTime()/1000), scheduled_end = Math.floor(new Date(endVal).getTime()/1000);
         const result = await _rest("reschedule", {panel_assignment_id: status.next_round.panel_assignment_id, scheduled_start, scheduled_end});
         if (result) {states.toast({message: "Rescheduled."}); await _view();}
+    });
+
+    root.querySelector("[data-pt=\"edit-record-open\"]")?.addEventListener("click", _ => {
+        state.editingRecord = true; _render(root, status, myRecord, accessLog);
+    });
+    root.querySelector("[data-pt=\"edit-record-cancel\"]")?.addEventListener("click", _ => {
+        state.editingRecord = false; _render(root, status, myRecord, accessLog);
+    });
+    root.querySelector("[data-pt=\"save-record\"]")?.addEventListener("click", async _ => {
+        const full_name = root.querySelector("#pt-rec-name").value.trim(), email = root.querySelector("#pt-rec-email").value.trim();
+        if (!full_name || !email) {states.toast({message: "A name and an email are both required."}); return;}
+        const result = await _rest("update_record", {full_name, email,
+            phone: root.querySelector("#pt-rec-phone").value.trim() || undefined,
+            resume_ref: root.querySelector("#pt-rec-resume").value.trim() || undefined});
+        if (result) {states.toast({message: "Saved."}); state.editingRecord = false; await _view();}
+    });
+
+    root.querySelector("[data-pt=\"delete-request-open\"]")?.addEventListener("click", _ => {
+        state.requestingDeletion = true; _render(root, status, myRecord, accessLog);
+    });
+    root.querySelector("[data-pt=\"delete-request-cancel\"]")?.addEventListener("click", _ => {
+        state.requestingDeletion = false; _render(root, status, myRecord, accessLog);
+    });
+    root.querySelector("[data-pt=\"do-delete-request\"]")?.addEventListener("click", async _ => {
+        const confirmed = await states.confirmDestructive({title: "Request deletion of your data?",
+            body: "Your application is paused while this is reviewed. This isn't reversible once approved.",
+            confirmLabel: "Request deletion"});
+        if (!confirmed) return;
+        const result = await _rest("request_deletion", {reason: root.querySelector("#pt-delete-reason")?.value.trim() || undefined});
+        if (result) {states.toast({message: "Request sent."}); state.requestingDeletion = false; await _view();}
     });
 }
 

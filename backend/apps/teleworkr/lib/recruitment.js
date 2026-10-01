@@ -542,7 +542,7 @@ exports.pipelineBoardAsync = async function(org_id, actor_person_id, requisition
     const candidateById = Object.fromEntries(candidates.map(c => [c.candidate_id, c]));
 
     const columns = Object.fromEntries(rounds.map(r => [r.id, {round_id: r.id, title: r.title, cards: []}]));
-    const held = [], rejected = [], completed = [];
+    const held = [], rejected = [], completed = [], deletionPending = [];
     for (const application of applications) {
         const projected = await _projectAsync(org_id, application);
         const candidate = candidateById[application.candidate_id];
@@ -554,6 +554,10 @@ exports.pipelineBoardAsync = async function(org_id, actor_person_id, requisition
         if (projected.terminal?.kind == "completed") {
             completed.push({application_id: application.application_id, candidate_name}); continue;
         }
+        if (projected.terminal?.kind == "deletion_pending") {
+            deletionPending.push({application_id: application.application_id, candidate_name,
+                reason: projected.terminal.reason, requested_at: projected.terminal.occurred_at}); continue;
+        }
         for (const current of projected.current_rounds) {
             const card = {application_id: application.application_id, candidate_name, state: current.state,
                 review_date: current.transition?.review_date || null,
@@ -563,7 +567,8 @@ exports.pipelineBoardAsync = async function(org_id, actor_person_id, requisition
             else columns[current.round.id]?.cards.push(card);
         }
     }
-    return {requisition, columns: Object.values(columns), held, rejected, completed};
+    return {requisition, columns: Object.values(columns), held, rejected, completed,
+        deletion_pending: deletionPending};
 }
 
 // ---------------------------------------------------------------------------
@@ -833,7 +838,7 @@ exports.recordPanelOutcomeAsync = async function(request) {
 //
 // The link is wiki_share_link's own shape, reused deliberately: {token,
 // created_at/by, revoked_at/by} — long-lived rather than 14-day-expiring,
-// since a hiring process runs for weeks. The five portalXAsync functions
+// since a hiring process runs for weeks. The portalXAsync functions
 // below take that token in place of an actor entirely; there is no employee
 // identity here, so each writes its own audit entry directly with
 // actor_kind: "system" (identity.js's own precedent for an IdP-driven write
@@ -932,7 +937,11 @@ exports.portalStatusAsync = async function(token) {
             timezone_base: nextPanel.timezone_base, candidate_reschedule_count: nextPanel.candidate_reschedule_count,
             interviewers: JSON.parse(nextPanel.interviewer_person_ids).map(person_id => ({name: names[person_id] || person_id}))} : null,
         terminal: projected.terminal ? {kind: projected.terminal.kind, reason: projected.terminal.reason || null} : null,
-        consent_retain: Boolean(candidate.consent_retain)};
+        consent_retain: Boolean(candidate.consent_retain),
+        deletion_status: {pending: Boolean(application.deletion_requested_at && !application.deletion_decided_at),
+            requested_at: application.deletion_requested_at || null, reason: application.deletion_requested_reason || null,
+            decided_at: application.deletion_decided_at || null, decision: application.deletion_decision || null,
+            decision_reason: application.deletion_decision_reason || null}};
 }
 
 /** @param {object} request {token, reason} */
@@ -1006,6 +1015,80 @@ exports.portalSetConsentAsync = async function(request) {
     await audit.writeAsync({org_id: link.org_id, action: "recruitment.candidate_consent_set", object_type: "application",
         object_ref: link.application_id, actor_kind: "system", detail: {via: "candidate_portal", consent_retain: Boolean(request.consent_retain)}});
     return "recorded";
+}
+
+/**
+ * K12 slice 2: the candidate's own submitted fields — what they typed in
+ * themselves, not what the process has concluded about them. Deliberately
+ * not a trimmed candidateRecordAsync: that payload also carries scorecards/
+ * evaluations/activity, which stay K5-only (employee-facing, candidate.read-
+ * gated) and are never reachable through the portal.
+ * @param {string} token The portal link's token
+ */
+exports.portalMyRecordAsync = async function(token) {
+    const link = await _portalTokenRowAsync(token);
+    const application = await _applicationAsync(link.org_id, link.application_id);
+    const candidate = await _candidateAsync(link.org_id, application.candidate_id);
+    return {full_name: candidate.full_name, email: candidate.email, phone: candidate.phone,
+        source: candidate.source, resume_ref: candidate.resume_ref, applied_at: application.applied_at};
+}
+
+/** @param {object} request {token, full_name, email, phone, resume_ref} — corrects what they themselves supplied */
+exports.portalUpdateRecordAsync = async function(request) {
+    const link = await _portalTokenRowAsync(request.token);
+    if (!request.full_name?.trim() || !request.email?.trim()) throw new Error("A name and an email are both required.");
+    const candidate_id = (await _applicationAsync(link.org_id, link.application_id)).candidate_id;
+
+    await dblayer.runCmdOrThrow(
+        "UPDATE candidate SET full_name=?, email=?, phone=?, resume_ref=? WHERE candidate_id=?",
+        [request.full_name.trim(), request.email.trim().toLowerCase(), request.phone || null,
+            request.resume_ref || null, candidate_id]);
+    await audit.writeAsync({org_id: link.org_id, action: "recruitment.candidate_corrected", object_type: "candidate",
+        object_ref: candidate_id, actor_kind: "system", detail: {via: "candidate_portal"}});
+    return "updated";
+}
+
+/**
+ * K12 slice 2: pauses the application rather than silently rejecting the
+ * candidate — the exact override withdrawal already established
+ * (_projectAsync), with its own column pair since a request is reviewed and
+ * can be declined, where a withdrawal is simply final.
+ * @param {object} request {token, reason}
+ */
+exports.portalRequestDeletionAsync = async function(request) {
+    const link = await _portalTokenRowAsync(request.token);
+    const application = await _applicationAsync(link.org_id, link.application_id);
+    if (application.deletion_requested_at && !application.deletion_decided_at)
+        throw new Error("A deletion request for this application is already pending review.");
+
+    await dblayer.runCmdOrThrow(
+        "UPDATE application SET deletion_requested_at=?, deletion_requested_reason=?, deletion_decided_at=NULL, deletion_decided_by=NULL, deletion_decision=NULL, deletion_decision_reason=NULL WHERE application_id=?",
+        [_now(), request.reason || null, link.application_id]);
+    await audit.writeAsync({org_id: link.org_id, action: "recruitment.candidate_deletion_requested",
+        object_type: "application", object_ref: link.application_id, actor_kind: "system",
+        detail: {via: "candidate_portal", reason: request.reason || null}});
+    return "requested";
+}
+
+/**
+ * K12 slice 2: "see who viewed it." Simpler than disclosure.js's own
+ * accessLogAsync — a candidate has no audit actor identity at all (every
+ * portal write here is actor_kind:"system", never attributed to the
+ * candidate), so there is no "own access" noise to exclude, unlike a
+ * person viewing their own employee record.
+ * @param {string} token The portal link's token
+ */
+exports.portalAccessLogAsync = async function(token) {
+    const link = await _portalTokenRowAsync(token);
+    const candidate_id = (await _applicationAsync(link.org_id, link.application_id)).candidate_id;
+    const rows = await dblayer.getQueryOrThrow(
+        `SELECT actor_person_id, action, COUNT(*) AS count, MAX(occurred_at) AS last_at FROM audit_event
+            WHERE org_id=? AND object_type='candidate' AND object_ref=? AND actor_person_id IS NOT NULL
+            GROUP BY actor_person_id, action ORDER BY last_at DESC`,
+        [link.org_id, candidate_id]);
+    const names = await _namesAsync(link.org_id);
+    return {accesses: rows.map(row => ({actor_name: names[row.actor_person_id] || row.actor_person_id,
+        action: row.action, count: row.count, last_at: row.last_at}))};
 }
 
 /**
@@ -1642,6 +1725,13 @@ async function _projectAsync(org_id, application) {
     // itself a kind that never advances a round. legalActionsAsync already
     // refuses every further transition once `terminal` is set, so this one
     // override is what makes withdrawal correct everywhere this is consulted.
+    // K12 slice 2: a pending deletion request is the identical shape — an
+    // out-of-band candidate action with no actor_person_id for a
+    // stage_transition row — checked first, since a request is the more
+    // specific, more recent action when both happen to be set.
+    if (application.deletion_requested_at && !application.deletion_decided_at) return {...projected, current_rounds: [],
+        terminal: {kind: "deletion_pending", reason: application.deletion_requested_reason,
+            occurred_at: application.deletion_requested_at}};
     if (application.withdrawn_at) return {...projected, current_rounds: [],
         terminal: {kind: "withdrawn", reason: application.withdrawn_reason, occurred_at: application.withdrawn_at}};
     return projected;

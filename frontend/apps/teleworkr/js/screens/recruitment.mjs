@@ -40,6 +40,7 @@ export async function render(root) {
         canOffer: caps.includes("offer.approve"), canManagePortal: caps.includes("candidate_portal.manage"),
         canPublishRetention: caps.includes("candidate_retention.publish"),
         canOperateRetention: caps.includes("candidate_retention.operate"),
+        canManageDataRequests: caps.includes("data.manage_requests"),
         composerOpen: false, workflowDraft: null, requisitionDraft: null,
         selectedRequisitionId: null, selectedApplicationId: null, addCandidateOpen: false,
         reschedulingPanelId: null, roster: null, offerComposerOpen: false, analyticsWorkflowCode: null,
@@ -55,7 +56,7 @@ async function _view() {
             <button class="tr-tab${state.tab == "workflows" ? " on" : ""}" data-rc="tab" data-tab="workflows">Workflows</button>
             <button class="tr-tab${state.tab == "pipeline" ? " on" : ""}" data-rc="tab" data-tab="pipeline">Pipeline</button>
             <button class="tr-tab${state.tab == "analytics" ? " on" : ""}" data-rc="tab" data-tab="analytics">Analytics</button>
-            ${state.canPublishRetention || state.canOperateRetention ?
+            ${state.canPublishRetention || state.canOperateRetention || state.canManageDataRequests ?
                 `<button class="tr-tab${state.tab == "retention" ? " on" : ""}" data-rc="tab" data-tab="retention">Retention</button>` : ""}
         </div>
         <div class="tr-view" id="rc-view"></div>
@@ -491,6 +492,12 @@ function _renderPipeline(root, board, approved, load) {
             ${board.held.map(card => `<div class="tr-track-row" data-card="${states.esc(card.application_id)}" style="cursor:pointer">
                 <span class="grow"><b>${states.esc(card.candidate_name)}</b> · ${states.esc(card.round_title)}</span>
                 <span class="sm" style="color:var(--dawn)">review ${states.esc(card.review_date)}</span></div>`).join("")}
+        </div>
+        <div class="tr-card mt2" style="${board.deletion_pending.length ? "" : "display:none"}">
+            <div class="up t3">Pending deletion — paused, decided under Retention</div>
+            ${board.deletion_pending.map(card => `<div class="tr-track-row">
+                <span class="grow"><b>${states.esc(card.candidate_name)}</b>${card.reason ? ` — ${states.esc(card.reason)}` : ""}</span>
+                <span class="sm t3">requested ${new Date(card.requested_at*1000).toLocaleDateString()}</span></div>`).join("")}
         </div>
         <div class="row wrap mt2" style="gap:16px">
             <div class="sm t3">Rejected: ${board.rejected.length}</div>
@@ -1201,15 +1208,18 @@ function _last12Months() {
 async function _retention(root) {
     root.innerHTML = `<div class="tr-band">${states.loading({rows: 3})}</div>`;
     const policy = state.canPublishRetention || state.canOperateRetention ? await _rest("retention_policy") : null;
-    if (!policy) return;
-    _renderRetention(root, policy);
+    if ((state.canPublishRetention || state.canOperateRetention) && !policy) return;
+    const deletionRequests = state.canManageDataRequests ? await _rest("pending_deletion_requests") : null;
+    if (state.canManageDataRequests && !deletionRequests) return;
+    _renderRetention(root, policy, deletionRequests);
 }
 
-function _renderRetention(root, policy) {
+function _renderRetention(root, policy, deletionRequests) {
     root.innerHTML = `
         ${state.canPublishRetention ? _retentionPolicyCardHtml(policy) : ""}
-        ${state.canOperateRetention ? _retentionRunCardHtml(policy) : ""}`;
-    _wireRetention(root, policy);
+        ${state.canOperateRetention ? _retentionRunCardHtml(policy) : ""}
+        ${state.canManageDataRequests ? _deletionRequestsCardHtml(deletionRequests) : ""}`;
+    _wireRetention(root, policy, deletionRequests);
 }
 
 function _retentionPolicyCardHtml(policy) {
@@ -1251,7 +1261,33 @@ function _retentionRunCardHtml(policy) {
     </div>`;
 }
 
-function _wireRetention(root, policy) {
+function _deletionRequestsCardHtml(deletionRequests) {
+    const requests = deletionRequests.requests;
+    return `<div class="tr-card" style="margin-top:10px">
+        <div class="up t3">Deletion requests</div>
+        ${requests.length ? requests.map(r => _deletionRequestRowHtml(r)).join("") :
+            `<div class="tr-empty">Nothing waiting.</div>`}
+    </div>`;
+}
+
+function _deletionRequestRowHtml(r) {
+    const open = state.openDeletionDecision == r.application_id;
+    return `<div class="tr-track-row">
+        <span class="grow"><b>${states.esc(r.full_name)}</b> · ${states.esc(r.requisition_title)}
+            <br><span class="sm t3">${r.reason ? states.esc(r.reason) : "no reason given"} ·
+                requested ${new Date(r.requested_at*1000).toLocaleDateString()}</span></span>
+        <button class="btn sm danger" data-rc="approve-deletion" data-id="${states.esc(r.application_id)}">Approve</button>
+        <button class="btn sm" data-rc="decline-deletion-open" data-id="${states.esc(r.application_id)}">${open ? "Close" : "Decline"}</button>
+    </div>
+    ${open ? `<div class="tr-panel" style="margin-top:4px">
+        <div class="row wrap" style="gap:6px">
+            <input class="inp grow" id="rc-decline-deletion-reason" placeholder="Reason, required">
+            <button class="btn sm danger" data-rc="do-decline-deletion" data-id="${states.esc(r.application_id)}">Decline</button>
+        </div>
+    </div>` : ""}`;
+}
+
+function _wireRetention(root, policy, deletionRequests) {
     root.querySelector("[data-rc=\"publish-retention\"]")?.addEventListener("click", async _ => {
         const no_consent_days = Number(root.querySelector("#rc-ret-noconsent").value);
         const consent_days = Number(root.querySelector("#rc-ret-consent").value);
@@ -1267,7 +1303,7 @@ function _wireRetention(root, policy) {
         const result = await _rest("preview_retention_run");
         if (!result) return;
         state.retentionPreview = result; state.retentionResult = null;
-        _renderRetention(root, policy);
+        _renderRetention(root, policy, deletionRequests);
     });
 
     root.querySelector("[data-rc=\"execute-retention\"]")?.addEventListener("click", async _ => {
@@ -1281,7 +1317,31 @@ function _wireRetention(root, policy) {
         if (!result) return;
         states.toast({message: `Erased ${result.erased_count} candidate(s).`});
         state.retentionResult = result; state.retentionPreview = null;
-        _renderRetention(root, policy);
+        _renderRetention(root, policy, deletionRequests);
+    });
+
+    for (const button of root.querySelectorAll("[data-rc=\"approve-deletion\"]")) button.addEventListener("click", async _ => {
+        const applicationId = button.getAttribute("data-id");
+        const name = deletionRequests.requests.find(r => r.application_id == applicationId)?.full_name || "this candidate";
+        const confirmed = await states.confirmDestructive({title: `Erase ${name}?`,
+            body: "Their candidate record, applications, scorecards, panels and offers are deleted outright. This cannot be undone.",
+            confirmLabel: "Erase"});
+        if (!confirmed) return;
+        const result = await _rest("decide_deletion_request", {application_id: applicationId, decision: "approved"});
+        if (result) {states.toast({message: "Erased."}); await _retention(root);}
+    });
+    for (const button of root.querySelectorAll("[data-rc=\"decline-deletion-open\"]")) button.addEventListener("click", _ => {
+        const id = button.getAttribute("data-id");
+        state.openDeletionDecision = state.openDeletionDecision == id ? null : id;
+        _renderRetention(root, policy, deletionRequests);
+    });
+    root.querySelector("[data-rc=\"do-decline-deletion\"]")?.addEventListener("click", async _ => {
+        const button = root.querySelector("[data-rc=\"do-decline-deletion\"]");
+        const decision_reason = root.querySelector("#rc-decline-deletion-reason").value.trim();
+        if (!decision_reason) {states.toast({message: "A reason is required."}); return;}
+        const result = await _rest("decide_deletion_request",
+            {application_id: button.getAttribute("data-id"), decision: "declined", decision_reason});
+        if (result) {states.toast({message: "Declined."}); state.openDeletionDecision = null; await _retention(root);}
     });
 }
 

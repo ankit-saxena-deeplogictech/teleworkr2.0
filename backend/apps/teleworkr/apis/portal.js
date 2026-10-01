@@ -10,6 +10,10 @@
  *  op - update_availability - timezone and what the candidate said works for them
  *  op - reschedule          - self-service, twice per panel, before it needs a conversation
  *  op - set_consent         - "keep my details for future roles"
+ *  op - my_record           - K12: the candidate's own submitted fields
+ *  op - update_record       - K12: corrects those same fields
+ *  op - request_deletion    - K12: pauses the application pending an HR decision
+ *  op - access_log          - K12: who's viewed this candidate record
  *
  * (C) 2026 TekMonks. All rights reserved.
  * License: See the enclosed LICENSE file.
@@ -44,6 +48,24 @@ exports.doService = async jsonReq => {
                 const result = await recruitment.portalSetConsentAsync({token: jsonReq.token, consent_retain: jsonReq.consent_retain});
                 return {...CONSTANTS.TRUE_RESULT, result};
             }
+            case "my_record": {
+                const result = await recruitment.portalMyRecordAsync(jsonReq.token);
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
+            case "update_record": {
+                const result = await recruitment.portalUpdateRecordAsync({token: jsonReq.token,
+                    full_name: jsonReq.full_name, email: jsonReq.email, phone: jsonReq.phone,
+                    resume_ref: jsonReq.resume_ref});
+                return {...CONSTANTS.TRUE_RESULT, result};
+            }
+            case "request_deletion": {
+                const result = await recruitment.portalRequestDeletionAsync({token: jsonReq.token, reason: jsonReq.reason});
+                return {...CONSTANTS.TRUE_RESULT, result};
+            }
+            case "access_log": {
+                const result = await recruitment.portalAccessLogAsync(jsonReq.token);
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
             default: return CONSTANTS.FALSE_RESULT;
         }
     } catch (err) {
@@ -52,6 +74,7 @@ exports.doService = async jsonReq => {
     }
 }
 
-const OPS = ["status", "withdraw", "update_availability", "reschedule", "set_consent"];
+const OPS = ["status", "withdraw", "update_availability", "reschedule", "set_consent",
+    "my_record", "update_record", "request_deletion", "access_log"];
 
 const validateRequest = jsonReq => jsonReq && OPS.includes(jsonReq.op) && jsonReq.token;

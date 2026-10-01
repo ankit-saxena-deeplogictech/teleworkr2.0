@@ -232,6 +232,37 @@ exports.previewRetentionRunAsync = async function(org_id, actor_person_id) {
  * @param {object} request {org_id, actor_person_id}
  * @returns {object} {erased_count, run_id}
  */
+/**
+ * The 8-table cascade, shared by the batch run below and the single-
+ * candidate deletion-request path — one cascade to keep in sync, not two.
+ * @param {object} exec The transaction executor
+ * @param {string} org_id The org
+ * @param {string} candidate_id The candidate being erased
+ * @param {array} applicationIds That candidate's application ids
+ */
+async function _eraseCandidateRowsAsync(exec, org_id, candidate_id, applicationIds) {
+    if (applicationIds.length) {
+        const placeholders = applicationIds.map(_ => "?").join(",");
+        await exec.runCmd(
+            `DELETE FROM offer_approval WHERE org_id=? AND offer_version_id IN
+                (SELECT offer_version_id FROM offer_version WHERE org_id=? AND application_id IN (${placeholders}))`,
+            [org_id, org_id, ...applicationIds]);
+        await exec.runCmd(`DELETE FROM offer_version WHERE org_id=? AND application_id IN (${placeholders})`,
+            [org_id, ...applicationIds]);
+        await exec.runCmd(`DELETE FROM panel_assignment WHERE org_id=? AND application_id IN (${placeholders})`,
+            [org_id, ...applicationIds]);
+        await exec.runCmd(`DELETE FROM scorecard WHERE org_id=? AND application_id IN (${placeholders})`,
+            [org_id, ...applicationIds]);
+        await exec.runCmd(`DELETE FROM candidate_portal_link WHERE org_id=? AND application_id IN (${placeholders})`,
+            [org_id, ...applicationIds]);
+        await exec.runCmd(`DELETE FROM stage_transition WHERE org_id=? AND application_id IN (${placeholders})`,
+            [org_id, ...applicationIds]);
+        await exec.runCmd(`DELETE FROM application WHERE org_id=? AND application_id IN (${placeholders})`,
+            [org_id, ...applicationIds]);
+    }
+    await exec.runCmd("DELETE FROM candidate WHERE org_id=? AND candidate_id=?", [org_id, candidate_id]);
+}
+
 exports.executeRetentionRunAsync = async function(request) {
     const {org_id, actor_person_id} = request;
     await _requireAsync(org_id, actor_person_id, "candidate_retention.operate", "execute the candidate retention run");
@@ -249,29 +280,9 @@ exports.executeRetentionRunAsync = async function(request) {
         action: async exec => {
             const erasedIds = [];
             for (const disposition of eligible) {
-                const candidate_id = disposition.candidate_id;
-                const applicationIds = disposition.applications.map(a => a.application_id);
-                if (applicationIds.length) {
-                    const placeholders = applicationIds.map(_ => "?").join(",");
-                    await exec.runCmd(
-                        `DELETE FROM offer_approval WHERE org_id=? AND offer_version_id IN
-                            (SELECT offer_version_id FROM offer_version WHERE org_id=? AND application_id IN (${placeholders}))`,
-                        [org_id, org_id, ...applicationIds]);
-                    await exec.runCmd(`DELETE FROM offer_version WHERE org_id=? AND application_id IN (${placeholders})`,
-                        [org_id, ...applicationIds]);
-                    await exec.runCmd(`DELETE FROM panel_assignment WHERE org_id=? AND application_id IN (${placeholders})`,
-                        [org_id, ...applicationIds]);
-                    await exec.runCmd(`DELETE FROM scorecard WHERE org_id=? AND application_id IN (${placeholders})`,
-                        [org_id, ...applicationIds]);
-                    await exec.runCmd(`DELETE FROM candidate_portal_link WHERE org_id=? AND application_id IN (${placeholders})`,
-                        [org_id, ...applicationIds]);
-                    await exec.runCmd(`DELETE FROM stage_transition WHERE org_id=? AND application_id IN (${placeholders})`,
-                        [org_id, ...applicationIds]);
-                    await exec.runCmd(`DELETE FROM application WHERE org_id=? AND application_id IN (${placeholders})`,
-                        [org_id, ...applicationIds]);
-                }
-                await exec.runCmd("DELETE FROM candidate WHERE org_id=? AND candidate_id=?", [org_id, candidate_id]);
-                erasedIds.push(candidate_id);
+                await _eraseCandidateRowsAsync(exec, org_id, disposition.candidate_id,
+                    disposition.applications.map(a => a.application_id));
+                erasedIds.push(disposition.candidate_id);
             }
 
             const policyPointer = (await exec.getQuery(
@@ -287,5 +298,74 @@ exports.executeRetentionRunAsync = async function(request) {
 
             LOG.info(`Candidate retention run ${run.run_id} erased ${run.erased_count} candidate(s) in ${org_id}.`);
             return {erased_count: run.erased_count, run_id: run.run_id};
+        }});
+}
+
+// ---------------------------------------------------------------------------
+// K12 slice 2 — a candidate's own self-service deletion request
+// ---------------------------------------------------------------------------
+
+/**
+ * The queue: every application with a deletion request awaiting a decision.
+ * @param {string} org_id The org
+ * @param {string} actor_person_id The caller
+ * @returns {object} {requests: [{application_id, candidate_id, full_name, requisition_title, reason, requested_at}]}
+ */
+exports.pendingDeletionRequestsAsync = async function(org_id, actor_person_id) {
+    await _requireAsync(org_id, actor_person_id, "data.manage_requests", "read candidate deletion requests");
+    const rows = await dblayer.getQueryOrThrow(
+        `SELECT a.application_id, a.candidate_id, a.deletion_requested_at, a.deletion_requested_reason,
+            c.full_name, r.title AS requisition_title
+            FROM application a JOIN candidate c ON c.candidate_id = a.candidate_id
+            JOIN requisition r ON r.requisition_id = a.requisition_id
+            WHERE a.org_id=? AND a.deletion_requested_at IS NOT NULL AND a.deletion_decided_at IS NULL
+            ORDER BY a.deletion_requested_at ASC`, [org_id]);
+    return {requests: rows.map(row => ({application_id: row.application_id, candidate_id: row.candidate_id,
+        full_name: row.full_name, requisition_title: row.requisition_title,
+        reason: row.deletion_requested_reason, requested_at: row.deletion_requested_at}))};
+}
+
+/**
+ * Decides a candidate's deletion request. A decline is a plain write — the
+ * application simply resumes once decided, same as every other decline this
+ * session (approve is the only branch that needs the A8 transaction, since
+ * it's the one that actually erases). Approve reuses the exact erasure
+ * trigger the batch run already uses (candidate_retention.operate) — not a
+ * new capability, since both paths do the same kind of action, just
+ * triggered differently.
+ * @param {object} request {org_id, actor_person_id, application_id, decision, decision_reason}
+ */
+exports.decideCandidateDeletionRequestAsync = async function(request) {
+    const {org_id, actor_person_id, application_id, decision} = request;
+    await _requireAsync(org_id, actor_person_id, "data.manage_requests", "decide a candidate deletion request");
+    if (!["approved", "declined"].includes(decision)) throw new Error("decision must be approved or declined.");
+    const application = (await dblayer.getQueryOrThrow(
+        "SELECT * FROM application WHERE org_id=? AND application_id=?", [org_id, application_id]))[0];
+    if (!application || !application.deletion_requested_at || application.deletion_decided_at)
+        throw new Error(`Application ${application_id} has no deletion request awaiting a decision.`);
+
+    if (decision == "declined") {
+        if (!request.decision_reason?.trim()) throw new Error("A decline needs a reason.");
+        await dblayer.runCmdOrThrow(
+            `UPDATE application SET deletion_decided_at=?, deletion_decided_by=?, deletion_decision='declined',
+                deletion_decision_reason=? WHERE application_id=?`,
+            [_now(), actor_person_id, request.decision_reason, application_id]);
+        return {status: "declined"};
+    }
+
+    return await audit.performAsync({
+        org_id, actor_person_id, capability: "candidate_retention.operate",
+        audit: {action: "candidate.erased", object_type: "candidate", object_ref: application.candidate_id,
+            detail: {via: "deletion_request", application_id}},
+        action: async exec => {
+            // Erasure is of the candidate, not just the one application they
+            // requested it through — a right to erasure is about the data
+            // subject, and a candidate row with other applications still
+            // attached would be a half-measure, not an erasure.
+            const applicationIds = (await exec.getQuery(
+                "SELECT application_id FROM application WHERE org_id=? AND candidate_id=?",
+                [org_id, application.candidate_id])).map(row => row.application_id);
+            await _eraseCandidateRowsAsync(exec, org_id, application.candidate_id, applicationIds);
+            return {status: "approved"};
         }});
 }

@@ -52,6 +52,7 @@ exports.runTestsAsync = async function(argv) {
         await _testOutcomes(w);
         await _testRun(w);
         await _testAccessAudit(w);
+        await _testDeletionRequests(w);
     } catch (err) {
         failed++; LOG.console(`  FAIL  candidateretention tests threw: ${err}\n`); LOG.error(`Candidateretention tests threw: ${err.stack}`);
     } finally {
@@ -229,6 +230,77 @@ async function _testAccessAudit(w) {
         "SELECT COUNT(*) AS n FROM audit_event WHERE org_id=? AND action='candidate.accessed'", [w.org_id]);
     _check("reading a candidate record writes one candidate.accessed audit entry",
         after[0].n == before[0].n + 1);
+}
+
+// ---------------------------------------------------------------------------
+// K12 slice 2 — a candidate's own self-service deletion request
+// ---------------------------------------------------------------------------
+
+async function _testDeletionRequests(w) {
+    LOG.console("\n candidate deletion requests — decide, don't just track\n");
+
+    await _checkThrows("an employee cannot read the deletion-request queue", _ =>
+        candidateretention.pendingDeletionRequestsAsync(w.org_id, w.alice));
+
+    const declineMe = await _applyOnly(w, "DeclineMe Candidate");
+    const link1 = await recruitment.generatePortalLinkAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: declineMe.application_id});
+    await recruitment.portalRequestDeletionAsync({token: link1.token, reason: "Changed my mind."});
+
+    const queue = await candidateretention.pendingDeletionRequestsAsync(w.org_id, w.carol);
+    _check("the pending request shows up in the queue", queue.requests.some(r =>
+        r.application_id == declineMe.application_id && r.reason == "Changed my mind."), JSON.stringify(queue.requests));
+
+    await _checkThrows("a decline with no reason is refused", _ =>
+        candidateretention.decideCandidateDeletionRequestAsync({org_id: w.org_id, actor_person_id: w.carol,
+            application_id: declineMe.application_id, decision: "declined"}));
+
+    const declined = await candidateretention.decideCandidateDeletionRequestAsync({org_id: w.org_id,
+        actor_person_id: w.carol, application_id: declineMe.application_id, decision: "declined",
+        decision_reason: "Still want you to go forward."});
+    _check("decline is recorded", declined.status == "declined");
+
+    const stillThere = (await dblayer.getQueryOrThrow("SELECT 1 FROM candidate WHERE org_id=? AND candidate_id=?",
+        [w.org_id, declineMe.candidate_id]))[0];
+    _check("a decline resumes the candidate — nothing was erased", Boolean(stillThere));
+    const resumedLegal = await recruitment.legalActionsAsync(w.org_id, w.carol, declineMe.application_id);
+    _check("the application resumes normal engine behaviour once declined",
+        resumedLegal.terminal === undefined || resumedLegal.terminal === null, JSON.stringify(resumedLegal));
+
+    const queueAfterDecline = await candidateretention.pendingDeletionRequestsAsync(w.org_id, w.carol);
+    _check("the declined request no longer shows up in the queue",
+        !queueAfterDecline.requests.some(r => r.application_id == declineMe.application_id));
+
+    // approve — this one actually erases, across every application the candidate has
+    const approveMe = await _applyOnly(w, "ApproveMe Candidate");
+    const link2 = await recruitment.generatePortalLinkAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: approveMe.application_id});
+    await recruitment.portalRequestDeletionAsync({token: link2.token, reason: "Please delete me."});
+
+    await _checkThrows("an employee cannot decide a deletion request", _ =>
+        candidateretention.decideCandidateDeletionRequestAsync({org_id: w.org_id, actor_person_id: w.alice,
+            application_id: approveMe.application_id, decision: "approved"}));
+
+    const approved = await candidateretention.decideCandidateDeletionRequestAsync({org_id: w.org_id,
+        actor_person_id: w.carol, application_id: approveMe.application_id, decision: "approved"});
+    _check("approval is recorded", approved.status == "approved");
+
+    const gone = (await dblayer.getQueryOrThrow("SELECT 1 FROM candidate WHERE org_id=? AND candidate_id=?",
+        [w.org_id, approveMe.candidate_id]))[0];
+    _check("approving actually erases the candidate", !gone);
+    const applicationGone = (await dblayer.getQueryOrThrow(
+        "SELECT 1 FROM application WHERE org_id=? AND application_id=?", [w.org_id, approveMe.application_id]))[0];
+    _check("and their application too", !applicationGone);
+
+    const approveAuditRow = (await dblayer.getQueryOrThrow(
+        "SELECT * FROM audit_event WHERE org_id=? AND action='candidate.erased' AND object_ref=?",
+        [w.org_id, approveMe.candidate_id]))[0];
+    _check("the approval is audited under candidate.erased, naming the candidate", Boolean(approveAuditRow),
+        JSON.stringify(approveAuditRow));
+
+    await _checkThrows("deciding an already-decided request is refused", _ =>
+        candidateretention.decideCandidateDeletionRequestAsync({org_id: w.org_id, actor_person_id: w.carol,
+            application_id: declineMe.application_id, decision: "approved"}));
 }
 
 // ---------------------------------------------------------------------------

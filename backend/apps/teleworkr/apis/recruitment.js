@@ -31,6 +31,8 @@
  *  op - publish_retention_policy - K12: publish a new retention policy version
  *  op - preview_retention_run   - K12: who the retention run would erase, right now
  *  op - execute_retention_run   - K12: run it
+ *  op - pending_deletion_requests - K12 slice 2: candidate self-service deletion requests awaiting a decision
+ *  op - decide_deletion_request   - K12 slice 2: approve (erases) or decline (resumes the application) one
  *
  * Interviewer availability itself is read from the calendar API's `board` op —
  * the E3 board with leave wired in — rather than duplicated here.
@@ -237,6 +239,16 @@ exports.doService = async jsonReq => {
                     actor_person_id: actor.person_id});
                 return {...CONSTANTS.TRUE_RESULT, ...result};
             }
+            case "pending_deletion_requests": {
+                const result = await candidateretention.pendingDeletionRequestsAsync(jsonReq.org, actor.person_id);
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
+            case "decide_deletion_request": {
+                const result = await candidateretention.decideCandidateDeletionRequestAsync({org_id: jsonReq.org,
+                    actor_person_id: actor.person_id, application_id: jsonReq.application_id,
+                    decision: jsonReq.decision, decision_reason: jsonReq.decision_reason});
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
             default: return CONSTANTS.FALSE_RESULT;
         }
     } catch (err) {
@@ -256,6 +268,7 @@ const OPS = ["publish_workflow", "workflows", "raise_requisition", "approve_requ
     "update_candidate", "schedule_panel", "reschedule_panel", "panel_outcome", "interviewer_load",
     "build_offer", "approve_offer", "send_offer", "offer_viewed", "negotiate_offer", "offer_outcome", "offers",
     "funnel", "analytics_overview", "generate_portal_link", "revoke_portal_link", "portal_links",
-    "retention_policy", "publish_retention_policy", "preview_retention_run", "execute_retention_run"];
+    "retention_policy", "publish_retention_policy", "preview_retention_run", "execute_retention_run",
+    "pending_deletion_requests", "decide_deletion_request"];
 
 const validateRequest = jsonReq => jsonReq && OPS.includes(jsonReq.op) && jsonReq.id && jsonReq.org;
