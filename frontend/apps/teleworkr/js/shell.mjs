@@ -38,6 +38,7 @@ import {render as renderWindows} from "./screens/windows.mjs";
 import {render as renderApprovals} from "./screens/approvals.mjs";
 import {render as renderWorkload} from "./screens/workload.mjs";
 import {render as renderReports} from "./screens/reports.mjs";
+import {omniBar} from "../components/omni-bar/omni-bar.mjs";
 
 const API_SHELL = "shell", API_CLOCK = "clock", API_NOTIF = "notifications";
 
@@ -699,8 +700,8 @@ async function _notifOp(op, extra={}, silent=false) {
 // ---------------------------------------------------------------------------
 
 function _wireChrome() {
-    document.querySelector("#omni").addEventListener("click", _ =>
-        states.toast({message: "The command bar (A3) is not built yet."}));
+    document.querySelector("#omni").addEventListener("click", _ => omniBar.open({
+        myPersonId: projection?.person?.person_id, managerId: projection?.employment?.manager_person_id}));
 
     const menu = document.querySelector("#memenu"), avatar = document.querySelector("#avatar");
     avatar.addEventListener("click", event => {

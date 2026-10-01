@@ -85,6 +85,17 @@
 .kbd { font-family: var(--f-data); font-size: 10px; padding: 2px 5px; border-radius: 5px; background: var(--raise);
     border: 1px solid var(--stroke-2); color: var(--t3); margin-left: auto; }
 
+/* A3: the command bar itself, opened by #omni/⌘K */
+.omnibar { width: min(560px, 92vw); max-height: 70vh; background: var(--panel); border: 1px solid var(--stroke-2);
+    border-radius: var(--r-lg); box-shadow: var(--drop); padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.omni-input { width: 100%; font-size: 14px; height: 38px; }
+.omni-free { padding: 8px 10px; border-radius: 8px; background: var(--raise); }
+.omni-results { overflow-y: auto; max-height: 50vh; display: flex; flex-direction: column; gap: 2px; }
+.omni-sec { padding: 8px 4px 2px; text-transform: uppercase; letter-spacing: .08em; }
+.omni-row { padding: 8px 9px; border-radius: 8px; cursor: pointer; }
+.omni-row:hover, .omni-row.on { background: var(--raise); }
+.omni-hint { padding: 2px 2px 0; }
+
 /* the clock — persistent, states what it is bound to, one contextual button */
 .clock { display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 6px 0 12px; border-radius: 10px;
     background: var(--panel); border: 1px solid var(--stroke); position: relative; overflow: hidden; flex: none; }
