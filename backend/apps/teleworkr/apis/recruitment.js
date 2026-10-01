@@ -27,6 +27,10 @@
  *  op - offers              - K8: an application's full offer version history
  *  op - funnel              - K11: pass-through, time-in-stage & SLA for one workflow template
  *  op - analytics_overview  - K11: source attribution and decline reasons, org-wide or one requisition
+ *  op - retention_policy        - K12: the published candidate retention policy, or a default
+ *  op - publish_retention_policy - K12: publish a new retention policy version
+ *  op - preview_retention_run   - K12: who the retention run would erase, right now
+ *  op - execute_retention_run   - K12: run it
  *
  * Interviewer availability itself is read from the calendar API's `board` op —
  * the E3 board with leave wired in — rather than duplicated here.
@@ -37,6 +41,7 @@
 
 const spine = require(`${TELEWORKR_CONSTANTS.LIBDIR}/spine.js`);
 const recruitment = require(`${TELEWORKR_CONSTANTS.LIBDIR}/recruitment.js`);
+const candidateretention = require(`${TELEWORKR_CONSTANTS.LIBDIR}/candidateretention.js`);
 
 exports.doService = async jsonReq => {
     if (!validateRequest(jsonReq)) {LOG.error("Validation failure."); return CONSTANTS.FALSE_RESULT;}
@@ -212,6 +217,26 @@ exports.doService = async jsonReq => {
                     jsonReq.application_id);
                 return {...CONSTANTS.TRUE_RESULT, ...result};
             }
+            case "retention_policy": {
+                const result = await candidateretention.policyAsync(jsonReq.org);
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
+            case "publish_retention_policy": {
+                const result = await candidateretention.publishPolicyAsync({org_id: jsonReq.org,
+                    actor_person_id: actor.person_id, step_up_verified: jsonReq.step_up_verified,
+                    no_consent_days: jsonReq.no_consent_days, consent_days: jsonReq.consent_days,
+                    withdrawn_days: jsonReq.withdrawn_days});
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
+            case "preview_retention_run": {
+                const result = await candidateretention.previewRetentionRunAsync(jsonReq.org, actor.person_id);
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
+            case "execute_retention_run": {
+                const result = await candidateretention.executeRetentionRunAsync({org_id: jsonReq.org,
+                    actor_person_id: actor.person_id});
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
             default: return CONSTANTS.FALSE_RESULT;
         }
     } catch (err) {
@@ -230,6 +255,7 @@ const OPS = ["publish_workflow", "workflows", "raise_requisition", "approve_requ
     "apply", "board", "candidate", "legal_actions", "transition", "scorecard",
     "update_candidate", "schedule_panel", "reschedule_panel", "panel_outcome", "interviewer_load",
     "build_offer", "approve_offer", "send_offer", "offer_viewed", "negotiate_offer", "offer_outcome", "offers",
-    "funnel", "analytics_overview", "generate_portal_link", "revoke_portal_link", "portal_links"];
+    "funnel", "analytics_overview", "generate_portal_link", "revoke_portal_link", "portal_links",
+    "retention_policy", "publish_retention_policy", "preview_retention_run", "execute_retention_run"];
 
 const validateRequest = jsonReq => jsonReq && OPS.includes(jsonReq.op) && jsonReq.id && jsonReq.org;

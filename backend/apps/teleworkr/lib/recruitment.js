@@ -583,6 +583,12 @@ exports.candidateRecordAsync = async function(org_id, actor_person_id, applicati
     const application = await _applicationAsync(org_id, application_id);
     if (!application) throw new Error(`No application ${application_id}.`);
     const candidate = await _candidateAsync(org_id, application.candidate_id);
+    // K12: every access to a candidate record is audited — awaited, so a failed
+    // audit write fails the read too, the same A8 discipline audit.js's header
+    // states for writes, applied here to this one PII-bearing read path.
+    await audit.writeAsync({org_id, actor_person_id, actor_kind: "person",
+        action: "candidate.accessed", object_type: "candidate", object_ref: candidate.candidate_id,
+        detail: {application_id}});
     const requisition = await _requisitionAsync(org_id, application.requisition_id);
     const version = await _versionByIdAsync(org_id, application.workflow_version_id);
     const projected = await _projectAsync(org_id, application);

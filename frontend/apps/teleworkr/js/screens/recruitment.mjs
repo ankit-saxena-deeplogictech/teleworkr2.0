@@ -38,9 +38,12 @@ export async function render(root) {
         canApprove: caps.includes("requisition.approve"), canRecord: caps.includes("stage_transition.record"),
         canScore: caps.includes("scorecard.submit"), canSchedule: caps.includes("panel.schedule"),
         canOffer: caps.includes("offer.approve"), canManagePortal: caps.includes("candidate_portal.manage"),
+        canPublishRetention: caps.includes("candidate_retention.publish"),
+        canOperateRetention: caps.includes("candidate_retention.operate"),
         composerOpen: false, workflowDraft: null, requisitionDraft: null,
         selectedRequisitionId: null, selectedApplicationId: null, addCandidateOpen: false,
-        reschedulingPanelId: null, roster: null, offerComposerOpen: false, analyticsWorkflowCode: null};
+        reschedulingPanelId: null, roster: null, offerComposerOpen: false, analyticsWorkflowCode: null,
+        retentionPreview: null};
     await _view();
 }
 
@@ -52,6 +55,8 @@ async function _view() {
             <button class="tr-tab${state.tab == "workflows" ? " on" : ""}" data-rc="tab" data-tab="workflows">Workflows</button>
             <button class="tr-tab${state.tab == "pipeline" ? " on" : ""}" data-rc="tab" data-tab="pipeline">Pipeline</button>
             <button class="tr-tab${state.tab == "analytics" ? " on" : ""}" data-rc="tab" data-tab="analytics">Analytics</button>
+            ${state.canPublishRetention || state.canOperateRetention ?
+                `<button class="tr-tab${state.tab == "retention" ? " on" : ""}" data-rc="tab" data-tab="retention">Retention</button>` : ""}
         </div>
         <div class="tr-view" id="rc-view"></div>
     </div>`;
@@ -63,6 +68,7 @@ async function _view() {
         if (state.tab == "workflows") return await _workflows(view);
         if (state.tab == "pipeline") return await _pipeline(view);
         if (state.tab == "analytics") return await _analytics(view);
+        if (state.tab == "retention") return await _retention(view);
         return await _requisitions(view);
     } catch (err) {
         view.innerHTML = states.error({title: "Couldn't load recruitment",
@@ -1186,6 +1192,97 @@ function _last12Months() {
     const from = new Date(`${to}T00:00:00Z`);
     from.setUTCMonth(from.getUTCMonth() - 12);
     return [from.toISOString().substring(0, 10), to];
+}
+
+// ---------------------------------------------------------------------------
+// K12 (slice 1) — the retention policy and the J7-shaped preview/execute run
+// ---------------------------------------------------------------------------
+
+async function _retention(root) {
+    root.innerHTML = `<div class="tr-band">${states.loading({rows: 3})}</div>`;
+    const policy = state.canPublishRetention || state.canOperateRetention ? await _rest("retention_policy") : null;
+    if (!policy) return;
+    _renderRetention(root, policy);
+}
+
+function _renderRetention(root, policy) {
+    root.innerHTML = `
+        ${state.canPublishRetention ? _retentionPolicyCardHtml(policy) : ""}
+        ${state.canOperateRetention ? _retentionRunCardHtml(policy) : ""}`;
+    _wireRetention(root, policy);
+}
+
+function _retentionPolicyCardHtml(policy) {
+    return `<div class="tr-card">
+        <div class="up t3">Retention policy${policy.published ? ` · v${policy.version}` : " · unpublished default"}</div>
+        <div class="row wrap" style="gap:6px;margin-top:6px">
+            <label class="sm t3">Rejected, no consent to retain<br>
+                <input class="inp" id="rc-ret-noconsent" type="number" min="0" value="${policy.no_consent_days}" style="width:100px"> days</label>
+            <label class="sm t3">Rejected, consented<br>
+                <input class="inp" id="rc-ret-consent" type="number" min="0" value="${policy.consent_days}" style="width:100px"> days</label>
+            <label class="sm t3">Withdrew<br>
+                <input class="inp" id="rc-ret-withdrawn" type="number" min="0" value="${policy.withdrawn_days}" style="width:100px"> days</label>
+        </div>
+        <p class="sm t3" style="margin-top:6px">Hired candidates move to the employee record — never deleted by this
+            run. Rejected-and-consented candidates re-anchor their window on their own last "keep my details"
+            action, so consenting again in the portal extends it.</p>
+        <div class="row wrap" style="gap:6px;margin-top:8px">
+            <label class="sm t3"><input type="checkbox" id="rc-ret-stepup"> I have re-authenticated for this action</label>
+            <button class="btn pri" data-rc="publish-retention">Publish</button>
+        </div>
+    </div>`;
+}
+
+function _retentionRunCardHtml(policy) {
+    const preview = state.retentionPreview;
+    return `<div class="tr-card" style="margin-top:10px">
+        <div class="up t3">Retention run</div>
+        <div class="row wrap" style="gap:6px;margin-top:6px">
+            <button class="btn" data-rc="preview-retention">Preview</button>
+            ${preview ? `<button class="btn danger" data-rc="execute-retention">Execute</button>` : ""}
+        </div>
+        ${preview ? (preview.eligible.length ? `<div style="margin-top:8px">
+                ${preview.eligible.map(c => `<div class="tr-track-row">
+                    <span class="grow">${states.esc(c.full_name)}</span>
+                    <span class="sm t3">eligible since ${new Date(c.eligible_since*1000).toLocaleDateString()}</span>
+                </div>`).join("")}
+            </div>` : `<div class="tr-empty" style="margin-top:8px">Nobody is due — nothing for this run to do.</div>`) : ""}
+        ${state.retentionResult ? `<p class="sm t3" style="margin-top:8px">Last run erased ${state.retentionResult.erased_count} candidate(s).</p>` : ""}
+    </div>`;
+}
+
+function _wireRetention(root, policy) {
+    root.querySelector("[data-rc=\"publish-retention\"]")?.addEventListener("click", async _ => {
+        const no_consent_days = Number(root.querySelector("#rc-ret-noconsent").value);
+        const consent_days = Number(root.querySelector("#rc-ret-consent").value);
+        const withdrawn_days = Number(root.querySelector("#rc-ret-withdrawn").value);
+        const step_up_verified = root.querySelector("#rc-ret-stepup").checked;
+        if (!step_up_verified) {states.toast({message: "Confirm re-authentication before publishing."}); return;}
+        const result = await _rest("publish_retention_policy",
+            {no_consent_days, consent_days, withdrawn_days, step_up_verified: true});
+        if (result) {states.toast({message: `Published v${result.version.version}.`}); await _view();}
+    });
+
+    root.querySelector("[data-rc=\"preview-retention\"]")?.addEventListener("click", async _ => {
+        const result = await _rest("preview_retention_run");
+        if (!result) return;
+        state.retentionPreview = result; state.retentionResult = null;
+        _renderRetention(root, policy);
+    });
+
+    root.querySelector("[data-rc=\"execute-retention\"]")?.addEventListener("click", async _ => {
+        const eligible = state.retentionPreview?.eligible || [];
+        const confirmed = await states.confirmDestructive({title: `Erase ${eligible.length} candidate(s)?`,
+            body: "Each candidate's record, applications, scorecards, panels and offers are deleted outright. This cannot be undone.",
+            collateral: eligible.map(c => c.full_name),
+            confirmLabel: "Execute"});
+        if (!confirmed) return;
+        const result = await _rest("execute_retention_run");
+        if (!result) return;
+        states.toast({message: `Erased ${result.erased_count} candidate(s).`});
+        state.retentionResult = result; state.retentionPreview = null;
+        _renderRetention(root, policy);
+    });
 }
 
 // ---------------------------------------------------------------------------

@@ -76,7 +76,11 @@ const CATALOGUE = Object.freeze({
     "leave_policy.publish": {label: "Publish a leave policy version", scopes: [SCOPES.JURISDICTION, SCOPES.ORG],
         step_up: true, always_audited: true},
     "requisition.approve": {label: "Approve a requisition", scopes: [SCOPES.ORG, SCOPES.TEAM], always_audited: true},
-    "candidate.read": {label: "Read candidate records", scopes: [SCOPES.TEAM, SCOPES.ORG]},
+    // always_audited here is enforced manually, not by performAsync — candidate.read
+    // gates a plain read (candidateRecordAsync), never an action run through
+    // performAsync, so the flag documents the obligation rather than mechanically
+    // guaranteeing it the way an always_audited performAsync capability would.
+    "candidate.read": {label: "Read candidate records", scopes: [SCOPES.TEAM, SCOPES.ORG], always_audited: true},
     "person_data.export": {label: "Export another person's data", scopes: [SCOPES.DIRECT_REPORTS, SCOPES.REPORTING_LINE, SCOPES.ORG],
         step_up: true, always_audited: true, action_requires_reason: true},
     "data.manage_requests": {label: "Manage data-subject requests and legal holds", scopes: [SCOPES.ORG], always_audited: true},
@@ -149,7 +153,17 @@ const CATALOGUE = Object.freeze({
     // approver_person_id is the real per-row gate, the same split
     // wiki.publish_public uses with wiki_space.public_approver_person_id.
     "app.access.approve": {label: "Decide an app-access request named to you", scopes: [SCOPES.ORG], always_audited: true},
-    "app.catalogue.manage": {label: "Manage the app catalogue and seats", scopes: [SCOPES.ORG], always_audited: true}
+    "app.catalogue.manage": {label: "Manage the app catalogue and seats", scopes: [SCOPES.ORG], always_audited: true},
+
+    // candidate retention (K12 slice 1) — policy-versioned like leave,
+    // run like J7. Not irreversible: that flag's precheck contract fits a
+    // single-target action (data.erase), not a batch run that may
+    // legitimately find nothing due — leave_run.operate itself isn't
+    // irreversible either, despite real consequences.
+    "candidate_retention.publish": {label: "Publish a candidate retention policy version", scopes: [SCOPES.ORG],
+        step_up: true, always_audited: true},
+    "candidate_retention.operate": {label: "Preview and execute the candidate retention run", scopes: [SCOPES.ORG],
+        always_audited: true}
 });
 
 /**
@@ -177,6 +191,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["time.read_own", SCOPES.SELF], ["timesheet.read", SCOPES.ORG], ["timesheet.approve", SCOPES.DIRECT_REPORTS],
         ["time_entry.edit_other", SCOPES.ORG], ["leave.request", SCOPES.SELF], ["leave.approve", SCOPES.ORG],
         ["leave_policy.publish", SCOPES.ORG], ["leave_run.operate", SCOPES.ORG], ["candidate.read", SCOPES.ORG],
+        ["candidate_retention.publish", SCOPES.ORG], ["candidate_retention.operate", SCOPES.ORG],
         ["person_data.export", SCOPES.ORG],
         ["wellbeing.read_aggregate", SCOPES.ORG], ["workload.read", SCOPES.DIRECT_REPORTS],
         ["audit.read_own", SCOPES.SELF], ["audit.read_policy", SCOPES.ORG],
@@ -207,7 +222,8 @@ const BUILTIN_ROLES = Object.freeze({
         ["training.publish", SCOPES.ORG], ["survey.publish", SCOPES.ORG],
         ["workflow.publish", SCOPES.ORG], ["requisition.approve", SCOPES.ORG], ["requisition.create", SCOPES.ORG],
         ["candidate.read", SCOPES.ORG], ["stage_transition.record", SCOPES.ORG], ["scorecard.submit", SCOPES.ORG],
-        ["panel.schedule", SCOPES.ORG], ["candidate_portal.manage", SCOPES.ORG], ["offer.approve", SCOPES.ORG]]},
+        ["panel.schedule", SCOPES.ORG], ["candidate_portal.manage", SCOPES.ORG], ["offer.approve", SCOPES.ORG],
+        ["candidate_retention.operate", SCOPES.ORG]]},
     guest: {label: "Guest", capabilities: [["audit.read_own", SCOPES.SELF]]}
 });
 

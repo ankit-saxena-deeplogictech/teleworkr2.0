@@ -12,9 +12,11 @@
  * already point at a person_id that this module alone renders anonymous.
  * Erasure work is only needed for the register's ERASE-declared entities.
  *
- * Scoped to employee erasure. entityshapes.js's own note on `candidate` says
- * K12's consent-extended retention is "a later refinement of this baseline"
- * — candidate-side entities are deliberately outside the curated list below.
+ * Scoped to employee erasure. Candidate-side entities are deliberately
+ * outside the curated list below — they run on a different, outcome-anchored
+ * clock with no employment relationship behind it, implemented separately in
+ * lib/candidateretention.js (K12) rather than folded into this module's
+ * person-centric walk.
  *
  * (C) 2026 TekMonks. All rights reserved.
  * License: See the enclosed LICENSE file.
