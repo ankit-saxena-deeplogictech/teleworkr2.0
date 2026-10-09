@@ -163,6 +163,15 @@ const CATALOGUE = Object.freeze({
     "candidate_retention.publish": {label: "Publish a candidate retention policy version", scopes: [SCOPES.ORG],
         step_up: true, always_audited: true},
     "candidate_retention.operate": {label: "Preview and execute the candidate retention run", scopes: [SCOPES.ORG],
+        always_audited: true},
+
+    // diversity & adverse-impact reporting (K12 slice 3) — "reported to HR
+    // only," read literally: hr alone holds this, deliberately narrower than
+    // every other aggregate capability in this app (wellbeing.read_aggregate/
+    // workload.read go to at least hr+admin). always_audited is enforced
+    // manually (a direct audit.writeAsync call), same as candidate.read —
+    // this is a read, never routed through performAsync.
+    "diversity.read_aggregate": {label: "Read adverse-impact reporting by group", scopes: [SCOPES.ORG],
         always_audited: true}
 });
 
@@ -192,6 +201,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["time_entry.edit_other", SCOPES.ORG], ["leave.request", SCOPES.SELF], ["leave.approve", SCOPES.ORG],
         ["leave_policy.publish", SCOPES.ORG], ["leave_run.operate", SCOPES.ORG], ["candidate.read", SCOPES.ORG],
         ["candidate_retention.publish", SCOPES.ORG], ["candidate_retention.operate", SCOPES.ORG],
+        ["diversity.read_aggregate", SCOPES.ORG],
         ["person_data.export", SCOPES.ORG],
         ["wellbeing.read_aggregate", SCOPES.ORG], ["workload.read", SCOPES.DIRECT_REPORTS],
         ["audit.read_own", SCOPES.SELF], ["audit.read_policy", SCOPES.ORG],

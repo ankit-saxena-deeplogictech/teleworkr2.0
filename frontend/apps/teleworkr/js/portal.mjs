@@ -24,7 +24,7 @@ let state = null;
 
 /** Renders the portal. @param {HTMLElement} root */
 export async function render(root) {
-    state = {root, editingRecord: false, requestingDeletion: false};
+    state = {root, editingRecord: false, requestingDeletion: false, diversityOpen: false};
     if (!token) {
         root.innerHTML = states.error({title: "This link is incomplete", what: "No token was found in the URL.",
             safe: "Check the link you were sent, or ask your recruiter for a new one.", actions: []});
@@ -36,12 +36,13 @@ export async function render(root) {
 async function _view() {
     const root = state.root;
     root.innerHTML = states.loading({rows: 4});
-    const [status, myRecord, accessLog] = await Promise.all([_rest("status"), _rest("my_record"), _rest("access_log")]);
-    if (!status || !myRecord || !accessLog) return;
-    _render(root, status, myRecord, accessLog);
+    const [status, myRecord, accessLog, diversityData] = await Promise.all(
+        [_rest("status"), _rest("my_record"), _rest("access_log"), _rest("diversity")]);
+    if (!status || !myRecord || !accessLog || !diversityData) return;
+    _render(root, status, myRecord, accessLog, diversityData);
 }
 
-function _render(root, status, myRecord, accessLog) {
+function _render(root, status, myRecord, accessLog, diversityData) {
     const {candidate, requisition, pipeline, next_round, terminal, consent_retain, deletion_status} = status;
     root.innerHTML = `
         <div class="portal-hero">
@@ -74,10 +75,11 @@ function _render(root, status, myRecord, accessLog) {
         ${_myRecordHtml(myRecord)}
         ${_accessLogHtml(accessLog)}
         ${_deletionHtml(deletion_status)}
+        ${_diversityHtml(diversityData)}
 
         <p class="sm t3" style="margin-top:10px">This link is yours alone — don't forward it. Your recruiter can
             revoke it at any time.</p>`;
-    _wire(root, status, myRecord, accessLog);
+    _wire(root, status, myRecord, accessLog, diversityData);
 }
 
 function _terminalHtml(terminal, consent_retain) {
@@ -198,7 +200,38 @@ function _deletionHtml(status) {
     </div>`;
 }
 
-function _wire(root, status, myRecord, accessLog) {
+const GENDER_OPTIONS = [["", "— Not answered —"], ["woman", "Woman"], ["man", "Man"],
+    ["non_binary", "Non-binary"], ["prefer_not_to_say", "Prefer not to say"]];
+const DISABILITY_OPTIONS = [["", "— Not answered —"], ["yes", "Yes"], ["no", "No"], ["prefer_not_to_say", "Prefer not to say"]];
+
+/** K12 slice 3: collected optionally, collapsed by default — not the first thing a candidate sees. */
+function _diversityHtml(data) {
+    if (!state.diversityOpen) return `<div class="tr-card">
+        <div class="up t3">Diversity monitoring (optional)</div>
+        <p class="sm t3">Used only in anonymous, aggregate fairness reporting — never seen by anyone making a
+            decision about you, and never shown below a minimum group size.</p>
+        <button class="btn sm" data-pt="diversity-open" style="margin-top:6px">Tell us about yourself</button>
+    </div>`;
+    const selectHtml = (id, options, current) => `<select class="inp" id="${id}">
+        ${options.map(([value, label]) => `<option value="${states.esc(value)}"${value == (current || "") ? " selected" : ""}>${states.esc(label)}</option>`).join("")}
+    </select>`;
+    return `<div class="tr-card">
+        <div class="up t3">Diversity monitoring (optional)</div>
+        <p class="sm t3">Used only in anonymous, aggregate fairness reporting — never seen by anyone making a
+            decision about you. Answer as much or as little as you like.</p>
+        <div class="row wrap" style="gap:6px;margin-top:6px">
+            <label class="sm t3">Gender<br>${selectHtml("pt-div-gender", GENDER_OPTIONS, data.gender)}</label>
+            <label class="sm t3">Disability status<br>${selectHtml("pt-div-disability", DISABILITY_OPTIONS, data.disability_status)}</label>
+            <label class="sm t3">Ethnicity<br><input class="inp" id="pt-div-ethnicity" placeholder="Optional, free text" value="${states.esc(data.ethnicity || "")}"></label>
+        </div>
+        <div class="row wrap" style="gap:6px;margin-top:6px">
+            <button class="btn sm pri" data-pt="save-diversity">Save</button>
+            <button class="btn sm" data-pt="diversity-cancel">Close</button>
+        </div>
+    </div>`;
+}
+
+function _wire(root, status, myRecord, accessLog, diversityData) {
     root.querySelector("[data-pt=\"save-availability\"]")?.addEventListener("click", async _ => {
         const result = await _rest("update_availability", {timezone: root.querySelector("#pt-tz").value.trim() || undefined,
             availability_notes: root.querySelector("#pt-avail").value.trim() || undefined});
@@ -228,10 +261,10 @@ function _wire(root, status, myRecord, accessLog) {
     });
 
     root.querySelector("[data-pt=\"edit-record-open\"]")?.addEventListener("click", _ => {
-        state.editingRecord = true; _render(root, status, myRecord, accessLog);
+        state.editingRecord = true; _render(root, status, myRecord, accessLog, diversityData);
     });
     root.querySelector("[data-pt=\"edit-record-cancel\"]")?.addEventListener("click", _ => {
-        state.editingRecord = false; _render(root, status, myRecord, accessLog);
+        state.editingRecord = false; _render(root, status, myRecord, accessLog, diversityData);
     });
     root.querySelector("[data-pt=\"save-record\"]")?.addEventListener("click", async _ => {
         const full_name = root.querySelector("#pt-rec-name").value.trim(), email = root.querySelector("#pt-rec-email").value.trim();
@@ -243,10 +276,10 @@ function _wire(root, status, myRecord, accessLog) {
     });
 
     root.querySelector("[data-pt=\"delete-request-open\"]")?.addEventListener("click", _ => {
-        state.requestingDeletion = true; _render(root, status, myRecord, accessLog);
+        state.requestingDeletion = true; _render(root, status, myRecord, accessLog, diversityData);
     });
     root.querySelector("[data-pt=\"delete-request-cancel\"]")?.addEventListener("click", _ => {
-        state.requestingDeletion = false; _render(root, status, myRecord, accessLog);
+        state.requestingDeletion = false; _render(root, status, myRecord, accessLog, diversityData);
     });
     root.querySelector("[data-pt=\"do-delete-request\"]")?.addEventListener("click", async _ => {
         const confirmed = await states.confirmDestructive({title: "Request deletion of your data?",
@@ -255,6 +288,20 @@ function _wire(root, status, myRecord, accessLog) {
         if (!confirmed) return;
         const result = await _rest("request_deletion", {reason: root.querySelector("#pt-delete-reason")?.value.trim() || undefined});
         if (result) {states.toast({message: "Request sent."}); state.requestingDeletion = false; await _view();}
+    });
+
+    root.querySelector("[data-pt=\"diversity-open\"]")?.addEventListener("click", _ => {
+        state.diversityOpen = true; _render(root, status, myRecord, accessLog, diversityData);
+    });
+    root.querySelector("[data-pt=\"diversity-cancel\"]")?.addEventListener("click", _ => {
+        state.diversityOpen = false; _render(root, status, myRecord, accessLog, diversityData);
+    });
+    root.querySelector("[data-pt=\"save-diversity\"]")?.addEventListener("click", async _ => {
+        const result = await _rest("set_diversity", {
+            gender: root.querySelector("#pt-div-gender").value || undefined,
+            disability_status: root.querySelector("#pt-div-disability").value || undefined,
+            ethnicity: root.querySelector("#pt-div-ethnicity").value.trim() || undefined});
+        if (result) {states.toast({message: "Saved. Thank you."}); await _view();}
     });
 }
 

@@ -232,8 +232,9 @@ exports.previewRetentionRunAsync = async function(org_id, actor_person_id) {
  * @param {object} request {org_id, actor_person_id}
  * @returns {object} {erased_count, run_id}
  */
+
 /**
- * The 8-table cascade, shared by the batch run below and the single-
+ * The erase cascade, shared by the batch run below and the single-
  * candidate deletion-request path — one cascade to keep in sync, not two.
  * @param {object} exec The transaction executor
  * @param {string} org_id The org
@@ -260,6 +261,8 @@ async function _eraseCandidateRowsAsync(exec, org_id, candidate_id, applicationI
         await exec.runCmd(`DELETE FROM application WHERE org_id=? AND application_id IN (${placeholders})`,
             [org_id, ...applicationIds]);
     }
+    // K12 slice 3: keyed directly by candidate_id, no application_id join needed.
+    await exec.runCmd("DELETE FROM candidate_diversity_data WHERE org_id=? AND candidate_id=?", [org_id, candidate_id]);
     await exec.runCmd("DELETE FROM candidate WHERE org_id=? AND candidate_id=?", [org_id, candidate_id]);
 }
 

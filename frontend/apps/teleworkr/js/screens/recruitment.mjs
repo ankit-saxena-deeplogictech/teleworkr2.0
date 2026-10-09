@@ -41,10 +41,11 @@ export async function render(root) {
         canPublishRetention: caps.includes("candidate_retention.publish"),
         canOperateRetention: caps.includes("candidate_retention.operate"),
         canManageDataRequests: caps.includes("data.manage_requests"),
+        canReadDiversityAggregate: caps.includes("diversity.read_aggregate"),
         composerOpen: false, workflowDraft: null, requisitionDraft: null,
         selectedRequisitionId: null, selectedApplicationId: null, addCandidateOpen: false,
         reschedulingPanelId: null, roster: null, offerComposerOpen: false, analyticsWorkflowCode: null,
-        retentionPreview: null};
+        retentionPreview: null, fairnessWorkflowCode: null, fairnessDimension: "gender"};
     await _view();
 }
 
@@ -58,6 +59,8 @@ async function _view() {
             <button class="tr-tab${state.tab == "analytics" ? " on" : ""}" data-rc="tab" data-tab="analytics">Analytics</button>
             ${state.canPublishRetention || state.canOperateRetention || state.canManageDataRequests ?
                 `<button class="tr-tab${state.tab == "retention" ? " on" : ""}" data-rc="tab" data-tab="retention">Retention</button>` : ""}
+            ${state.canReadDiversityAggregate ?
+                `<button class="tr-tab${state.tab == "fairness" ? " on" : ""}" data-rc="tab" data-tab="fairness">Fairness</button>` : ""}
         </div>
         <div class="tr-view" id="rc-view"></div>
     </div>`;
@@ -70,6 +73,7 @@ async function _view() {
         if (state.tab == "pipeline") return await _pipeline(view);
         if (state.tab == "analytics") return await _analytics(view);
         if (state.tab == "retention") return await _retention(view);
+        if (state.tab == "fairness") return await _fairness(view);
         return await _requisitions(view);
     } catch (err) {
         view.innerHTML = states.error({title: "Couldn't load recruitment",
@@ -1342,6 +1346,75 @@ function _wireRetention(root, policy, deletionRequests) {
         const result = await _rest("decide_deletion_request",
             {application_id: button.getAttribute("data-id"), decision: "declined", decision_reason});
         if (result) {states.toast({message: "Declined."}); state.openDeletionDecision = null; await _retention(root);}
+    });
+}
+
+// ---------------------------------------------------------------------------
+// K12 slice 3 — adverse-impact reporting, HR only, in aggregate
+// ---------------------------------------------------------------------------
+
+async function _fairness(root) {
+    root.innerHTML = `<div class="tr-band">${states.loading({rows: 3})}</div>`;
+    const workflowsResponse = await _rest("workflows");
+    if (!workflowsResponse) return;
+    const workflows = workflowsResponse.workflows || [];
+    if (!workflows.length) {
+        root.innerHTML = `<div class="tr-empty">No workflows published yet — publish one on the Workflows tab first.</div>`;
+        return;
+    }
+    if (!state.fairnessWorkflowCode || !workflows.some(w => w.workflow_code == state.fairnessWorkflowCode))
+        state.fairnessWorkflowCode = workflows[0].workflow_code;
+
+    const report = await _rest("adverse_impact",
+        {workflow_code: state.fairnessWorkflowCode, dimension: state.fairnessDimension});
+    if (!report) return;
+    _renderFairness(root, workflows, report);
+}
+
+function _renderFairness(root, workflows, report) {
+    root.innerHTML = `
+        <div class="row wrap" style="gap:6px">
+            <select class="inp" id="rc-fair-workflow">
+                ${workflows.map(w => `<option value="${states.esc(w.workflow_code)}"${
+                    w.workflow_code == state.fairnessWorkflowCode ? " selected" : ""}>${states.esc(w.title)}</option>`).join("")}
+            </select>
+            <select class="inp" id="rc-fair-dimension">
+                ${["gender", "ethnicity", "disability_status"].map(d => `<option value="${d}"${
+                    d == state.fairnessDimension ? " selected" : ""}>${states.esc(d.replace(/_/g, " "))}</option>`).join("")}
+            </select>
+        </div>
+        <p class="sm t3" style="margin-top:6px">Self-reported, optional, and shown only above a minimum group size.
+            ${report.suppressed_group_count ? `${report.suppressed_group_count} group(s) too small to report are omitted.` : ""}</p>
+
+        <div class="tr-card" style="margin-top:10px">
+            <div class="up t3">Selection rate — applied to hired</div>
+            ${report.overall.length ? report.overall.map(o => `<div class="tr-track-row">
+                <span class="grow">${states.esc(o.group)}</span>
+                <span class="sm t3">${o.hired}/${o.applied} · rate ${(o.selection_rate*100).toFixed(1)}%
+                    · ratio ${o.impact_ratio != null ? o.impact_ratio.toFixed(2) : "—"}</span>
+                ${o.adverse_impact ? `<span class="chip warn">Below 4/5ths</span>` : ""}
+            </div>`).join("") : `<div class="tr-empty">No group has enough applicants yet to report.</div>`}
+        </div>
+
+        <div class="tr-card" style="margin-top:10px">
+            <div class="up t3">Pass rate by round</div>
+            ${report.rounds.map(round => `<div class="tr-track-row" style="flex-direction:column;align-items:stretch">
+                <b class="sm">${states.esc(round.title)}</b>
+                ${round.groups.length ? round.groups.map(g => `<div class="row" style="padding:2px 0">
+                    <span class="grow sm t3">${states.esc(g.group)}</span>
+                    <span class="sm t3">${g.passed}/${g.evaluated}${g.pass_rate != null ? ` · ${(g.pass_rate*100).toFixed(0)}%` : ""}</span>
+                </div>`).join("") : `<span class="sm t3">No group has enough applicants yet.</span>`}
+            </div>`).join("")}
+        </div>`;
+    _wireFairness(root, workflows);
+}
+
+function _wireFairness(root, workflows) {
+    root.querySelector("#rc-fair-workflow").addEventListener("change", event => {
+        state.fairnessWorkflowCode = event.target.value; _fairness(root);
+    });
+    root.querySelector("#rc-fair-dimension").addEventListener("change", event => {
+        state.fairnessDimension = event.target.value; _fairness(root);
     });
 }
 

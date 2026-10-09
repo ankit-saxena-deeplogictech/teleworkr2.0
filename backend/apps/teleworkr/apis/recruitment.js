@@ -33,6 +33,7 @@
  *  op - execute_retention_run   - K12: run it
  *  op - pending_deletion_requests - K12 slice 2: candidate self-service deletion requests awaiting a decision
  *  op - decide_deletion_request   - K12 slice 2: approve (erases) or decline (resumes the application) one
+ *  op - adverse_impact            - K12 slice 3: per-round pass rates & selection-rate ratio, by group, HR only
  *
  * Interviewer availability itself is read from the calendar API's `board` op —
  * the E3 board with leave wired in — rather than duplicated here.
@@ -44,6 +45,7 @@
 const spine = require(`${TELEWORKR_CONSTANTS.LIBDIR}/spine.js`);
 const recruitment = require(`${TELEWORKR_CONSTANTS.LIBDIR}/recruitment.js`);
 const candidateretention = require(`${TELEWORKR_CONSTANTS.LIBDIR}/candidateretention.js`);
+const diversity = require(`${TELEWORKR_CONSTANTS.LIBDIR}/diversity.js`);
 
 exports.doService = async jsonReq => {
     if (!validateRequest(jsonReq)) {LOG.error("Validation failure."); return CONSTANTS.FALSE_RESULT;}
@@ -249,6 +251,12 @@ exports.doService = async jsonReq => {
                     decision: jsonReq.decision, decision_reason: jsonReq.decision_reason});
                 return {...CONSTANTS.TRUE_RESULT, ...result};
             }
+            case "adverse_impact": {
+                const result = await diversity.adverseImpactAsync(jsonReq.org, actor.person_id,
+                    {workflow_code: jsonReq.workflow_code, dimension: jsonReq.dimension,
+                        from_date: jsonReq.from_date, to_date: jsonReq.to_date});
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
             default: return CONSTANTS.FALSE_RESULT;
         }
     } catch (err) {
@@ -269,6 +277,6 @@ const OPS = ["publish_workflow", "workflows", "raise_requisition", "approve_requ
     "build_offer", "approve_offer", "send_offer", "offer_viewed", "negotiate_offer", "offer_outcome", "offers",
     "funnel", "analytics_overview", "generate_portal_link", "revoke_portal_link", "portal_links",
     "retention_policy", "publish_retention_policy", "preview_retention_run", "execute_retention_run",
-    "pending_deletion_requests", "decide_deletion_request"];
+    "pending_deletion_requests", "decide_deletion_request", "adverse_impact"];
 
 const validateRequest = jsonReq => jsonReq && OPS.includes(jsonReq.op) && jsonReq.id && jsonReq.org;

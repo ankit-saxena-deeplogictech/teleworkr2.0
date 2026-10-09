@@ -14,12 +14,15 @@
  *  op - update_record       - K12: corrects those same fields
  *  op - request_deletion    - K12: pauses the application pending an HR decision
  *  op - access_log          - K12: who's viewed this candidate record
+ *  op - diversity           - K12 slice 3: the candidate's own self-reported diversity data
+ *  op - set_diversity       - K12 slice 3: sets it — collected optionally, stored apart
  *
  * (C) 2026 TekMonks. All rights reserved.
  * License: See the enclosed LICENSE file.
  */
 
 const recruitment = require(`${TELEWORKR_CONSTANTS.LIBDIR}/recruitment.js`);
+const diversity = require(`${TELEWORKR_CONSTANTS.LIBDIR}/diversity.js`);
 
 exports.doService = async jsonReq => {
     if (!validateRequest(jsonReq)) {LOG.error("Validation failure."); return CONSTANTS.FALSE_RESULT;}
@@ -66,6 +69,15 @@ exports.doService = async jsonReq => {
                 const result = await recruitment.portalAccessLogAsync(jsonReq.token);
                 return {...CONSTANTS.TRUE_RESULT, ...result};
             }
+            case "diversity": {
+                const result = await diversity.portalGetDiversityAsync(jsonReq.token);
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
+            case "set_diversity": {
+                const result = await diversity.portalSetDiversityAsync({token: jsonReq.token,
+                    gender: jsonReq.gender, ethnicity: jsonReq.ethnicity, disability_status: jsonReq.disability_status});
+                return {...CONSTANTS.TRUE_RESULT, result};
+            }
             default: return CONSTANTS.FALSE_RESULT;
         }
     } catch (err) {
@@ -75,6 +87,6 @@ exports.doService = async jsonReq => {
 }
 
 const OPS = ["status", "withdraw", "update_availability", "reschedule", "set_consent",
-    "my_record", "update_record", "request_deletion", "access_log"];
+    "my_record", "update_record", "request_deletion", "access_log", "diversity", "set_diversity"];
 
 const validateRequest = jsonReq => jsonReq && OPS.includes(jsonReq.op) && jsonReq.token;

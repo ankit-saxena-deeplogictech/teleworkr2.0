@@ -139,6 +139,8 @@ const REGISTER = Object.freeze({
         note: "One row per distinct approver — the database's own enforcement that the same person cannot satisfy the route twice."},
     candidate_portal_link: {shape: SHAPES.EDGE, erasure: ERASURE.ERASE, keep: "policy", anchor: ANCHORS.CANDIDATE_OUTCOME,
         note: "K9's magic link — a 1:1 companion to the application it grants access to, same treatment as the application itself."},
+    candidate_diversity_data: {shape: SHAPES.MUTABLE, erasure: ERASURE.ERASE, keep: "policy", anchor: ANCHORS.CANDIDATE_OUTCOME,
+        note: "K12: collected optionally, stored apart from the record decision-makers see — never joined into candidateRecordAsync/pipelineBoardAsync. Erases with the rest of the candidate's graph, same clock as everything else here."},
     signal_ledger_entry: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.ERASE, keep: "13m", anchor: ANCHORS.SIGNAL_EVALUATED,
         note: "Reads six tables, writes one. The wellbeing module adds no new collection — that is what makes it defensible."},
     signal_definition: {shape: SHAPES.VERSIONED_POINTER, erasure: ERASURE.RETAIN, keep: null, anchor: ANCHORS.NONE,
