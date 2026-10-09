@@ -1,0 +1,23 @@
+/*
+ * E5 — office days layout: a person × day grid, composed from calendar.css's
+ * week-grid pattern (5 columns instead of 7) and team.css's row/chip idiom.
+ * (C) 2026 TekMonks. All rights reserved.
+ */
+
+.page.od { display: flex; flex-direction: column; gap: 12px; }
+.od-head { display: flex; align-items: center; gap: 10px; }
+.od-week { display: flex; flex-direction: column; }
+.od-grid { display: grid; grid-template-columns: 130px repeat(5, minmax(0, 1fr)); gap: 6px; align-items: center; }
+.od-header { padding-bottom: 4px; border-bottom: 1px solid var(--stroke); }
+.od-header span { text-align: center; }
+.od-row { padding: 7px 0; border-top: 1px solid var(--stroke); }
+.od-row:first-of-type { border-top: none; }
+.od-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.od-cell { display: flex; justify-content: center; }
+.od-cell-self { cursor: pointer; border-radius: var(--r-sm); transition: background .14s var(--ease); }
+.od-cell-self:hover { background: var(--raise); }
+.od-chip { font-family: var(--f-data); font-size: 9px; letter-spacing: .06em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 6px; flex: none; }
+.od-chip.home { color: var(--t2); background: var(--raise); }
+.od-chip.office { color: var(--mint); background: var(--mint-w); }
+.od-chip.elsewhere { color: var(--iris); background: var(--iris-w); }

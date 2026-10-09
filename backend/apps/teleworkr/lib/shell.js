@@ -67,6 +67,9 @@ const SURFACES = Object.freeze({
     // as day/calendar/team — since it's the caller's own availability,
     // not a permission-gated view of anyone else's.
     windows:   {console: "Me",    label: "Working hours & travel", screen: "E4", order: 71, classification: CLASS.SHARED},
+    // E5: declaring your own day needs no capability either — same reasoning
+    // as E4 above, and E3's board already shows a cohort's presence with none.
+    officedays: {console: "Me",   label: "Office days", screen: "E5", order: 72, classification: CLASS.SHARED},
     leave:     {console: "Leave", label: "My leave",    screen: "J3", order: 80, classification: CLASS.GATED,
         capability: "leave.request"},
     policy:    {console: "Leave", label: "Leave policy", screen: "J2", order: 90, classification: CLASS.EXCLUSIVE,
