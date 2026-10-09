@@ -68,7 +68,8 @@ exports.doService = async jsonReq => {
                     positions: jsonReq.positions, req_type: jsonReq.req_type, location: jsonReq.location,
                     employment_type: jsonReq.employment_type, band: jsonReq.band,
                     band_min: jsonReq.band_min, band_max: jsonReq.band_max,
-                    target_start: jsonReq.target_start, workflow_code: jsonReq.workflow_code});
+                    target_start: jsonReq.target_start, workflow_code: jsonReq.workflow_code,
+                    blind_review: jsonReq.blind_review});
                 return {...CONSTANTS.TRUE_RESULT, ...result};
             }
             case "approve_requisition": {

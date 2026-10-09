@@ -130,7 +130,8 @@ function _renderRequisitions(root, response, workflows) {
 const _requisitionRow = requisition => `
     <div class="tr-track-row sv-manage-row" data-req-row="${states.esc(requisition.requisition_id)}">
         <span class="grow"><b>${states.esc(requisition.title)}</b> ·
-            <span class="chip">${states.esc(requisition.status.replace(/_/g, " "))}</span></span>
+            <span class="chip">${states.esc(requisition.status.replace(/_/g, " "))}</span>${
+                requisition.blind_review ? ` <span class="chip">Blind review</span>` : ""}</span>
         <span class="sm t3">${states.esc(requisition.team || "—")} · ${requisition.positions} position${
             requisition.positions == 1 ? "" : "s"} · ${states.esc(requisition.band || "no band")} ·
             target start ${states.esc(requisition.target_start)} · ${requisition.applicants} applicant${
@@ -144,7 +145,7 @@ const _requisitionRow = requisition => `
 
 function _blankRequisitionDraft() {
     return {title: "", team: "", positions: 1, req_type: "new", location: "", employment_type: "", band: "",
-        band_min: "", band_max: "", target_start: "", workflow_code: ""};
+        band_min: "", band_max: "", target_start: "", workflow_code: "", blind_review: false};
 }
 
 function _requisitionComposerHtml(draft, response, workflows) {
@@ -172,6 +173,10 @@ function _requisitionComposerHtml(draft, response, workflows) {
             <input class="inp" id="rq-band-max" type="number" min="0" placeholder="Band maximum" style="width:150px" value="${states.esc(draft.band_max)}">
             <span class="sm t3">Optional — an offer against this requisition can only compute its band position (K8) when both are set.</span>
         </div>
+        <div class="row wrap">
+            <label class="sm"><input type="checkbox" id="rq-blind-review"${draft.blind_review ? " checked" : ""}>
+                Blind review — hide name, email, phone and résumé link until resume review is resolved</label>
+        </div>
         <div class="row">
             <select class="inp grow" id="rq-workflow">
                 <option value="">Select a workflow…</option>
@@ -198,6 +203,7 @@ function _wireRequisitionComposer(root, response, workflows) {
         d.band_max = root.querySelector("#rq-band-max").value;
         d.target_start = root.querySelector("#rq-start").value;
         d.workflow_code = root.querySelector("#rq-workflow").value;
+        d.blind_review = root.querySelector("#rq-blind-review").checked;
         if (!d.title.trim()) {states.toast({message: "A requisition needs a title."}); return;}
         if (!d.workflow_code) {states.toast({message: "Pick a workflow."}); return;}
         if (!d.target_start) {states.toast({message: "A requisition needs a target start date."}); return;}
@@ -588,6 +594,8 @@ async function _renderDrawer(root) {
                         ` · referred` : ""}</p></div>
             <button class="btn" data-rc="close-drawer">Close</button>
         </div>
+        ${record.blind_review_active ? `<div class="sm t3" style="color:var(--dawn)">Blind review in effect —
+            name, email, phone and résumé are hidden until resume review is resolved.</div>` : ""}
 
         <div class="sm t2">${candidate.timezone ? `Timezone <b>${states.esc(candidate.timezone)}</b>` :
             "No timezone recorded — panel times show in yours until one is"}${candidate.availability_notes ?

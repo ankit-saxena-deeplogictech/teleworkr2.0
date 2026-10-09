@@ -74,6 +74,7 @@ exports.runTestsAsync = async function(argv) {
         await _testPanelScheduling(w, requisition);
         await _testCandidatePortal(w, requisition);
         await _testCandidateRights(w, requisition);
+        await _testBlindReview(w, workflow);
         await _testOffers(w, workflow);
         await _testAnalytics(w);
     } catch (err) {
@@ -696,6 +697,57 @@ async function _testCandidateRights(w, requisition) {
     _check("the pending-deletion application is visible in its own board bucket, not just invisible like a withdrawal",
         board.deletion_pending.some(c => c.application_id == applied.application_id &&
             c.reason == "Changed my mind."), JSON.stringify(board.deletion_pending));
+}
+
+/** K12 slice 4: blind review redacts identity while r1 (resume_review) is unresolved, reveals once it resolves. */
+async function _testBlindReview(w, workflow) {
+    LOG.console("\n K12 slice 4 — blind review\n");
+
+    const blindReq = await recruitment.raiseRequisitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+        title: "Blind Review Role", target_start: _inDays(60), workflow_code: workflow.workflow_code,
+        blind_review: true});
+    await recruitment.approveRequisitionAsync({org_id: w.org_id, actor_person_id: w.dave,
+        requisition_id: blindReq.requisition_id});
+    const applied = await recruitment.applyAsync({org_id: w.org_id, actor_person_id: w.carol,
+        requisition_id: blindReq.requisition_id, full_name: "Blind Candidate",
+        phone: "0123456789", resume_ref: "https://example.invalid/resume.pdf",
+        email: `blind.${w.stamp}@example.invalid`});
+
+    const record = await recruitment.candidateRecordAsync(w.org_id, w.carol, applied.application_id);
+    _check("blind_review_active is true while resume review is unresolved", record.blind_review_active === true);
+    _check("the real name is replaced with a stable pseudonym",
+        record.candidate.full_name.startsWith("Candidate ") && record.candidate.full_name != "Blind Candidate",
+        record.candidate.full_name);
+    _check("email, phone and résumé are all hidden too — not just the name",
+        record.candidate.email != `blind.${w.stamp}@example.invalid` && record.candidate.phone === null &&
+        record.candidate.resume_ref === null, JSON.stringify(record.candidate));
+
+    const board = await recruitment.pipelineBoardAsync(w.org_id, w.carol, blindReq.requisition_id);
+    const card = [...board.columns.flatMap(c => c.cards)].find(c => c.application_id == applied.application_id);
+    _check("the pipeline board's card name is redacted identically, not just the drawer",
+        card && card.candidate_name.startsWith("Candidate ") && card.candidate_name == record.candidate.full_name,
+        JSON.stringify(card));
+
+    await recruitment.recordTransitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+        application_id: applied.application_id, round_id: "r1", kind: "advanced"});
+    const revealed = await recruitment.candidateRecordAsync(w.org_id, w.carol, applied.application_id);
+    _check("once resume review resolves, identity reveals — blind_review_active is false",
+        revealed.blind_review_active === false);
+    _check("the real name, email, phone and résumé are all back",
+        revealed.candidate.full_name == "Blind Candidate" && revealed.candidate.email == `blind.${w.stamp}@example.invalid` &&
+        revealed.candidate.phone == "0123456789" && revealed.candidate.resume_ref == "https://example.invalid/resume.pdf",
+        JSON.stringify(revealed.candidate));
+
+    // regression guard: a plain (non-blind) requisition, same workflow, is unaffected
+    const plainReq = await recruitment.raiseRequisitionAsync({org_id: w.org_id, actor_person_id: w.carol,
+        title: "Plain Role", target_start: _inDays(60), workflow_code: workflow.workflow_code});
+    await recruitment.approveRequisitionAsync({org_id: w.org_id, actor_person_id: w.dave,
+        requisition_id: plainReq.requisition_id});
+    const plainApplied = await recruitment.applyAsync({org_id: w.org_id, actor_person_id: w.carol,
+        requisition_id: plainReq.requisition_id, full_name: "Plain Candidate", email: `plain.${w.stamp}@example.invalid`});
+    const plainRecord = await recruitment.candidateRecordAsync(w.org_id, w.carol, plainApplied.application_id);
+    _check("a requisition with blind_review left unset is completely unaffected",
+        plainRecord.blind_review_active === false && plainRecord.candidate.full_name == "Plain Candidate");
 }
 
 /**

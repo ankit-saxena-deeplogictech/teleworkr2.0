@@ -212,14 +212,16 @@ exports.raiseRequisitionAsync = async function(request) {
                 band_min: request.band_min ?? null, band_max: request.band_max ?? null,
                 target_start: request.target_start, workflow_code: request.workflow_code,
                 workflow_version_id: pointer[0].workflow_version_id, status: "pending_approval",
-                raised_by: request.actor_person_id, created_at: _now(), created_by: request.actor_person_id};
+                raised_by: request.actor_person_id, created_at: _now(), created_by: request.actor_person_id,
+                blind_review: request.blind_review ? 1 : 0};
             await exec.runCmd(`INSERT INTO requisition (requisition_id, org_id, title, team, positions, req_type,
                     location, employment_type, band, band_min, band_max, target_start, workflow_code,
-                    workflow_version_id, status, raised_by, created_at, created_by)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                    workflow_version_id, status, raised_by, created_at, created_by, blind_review)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
                 [row.requisition_id, row.org_id, row.title, row.team, row.positions, row.req_type, row.location,
                     row.employment_type, row.band, row.band_min, row.band_max, row.target_start, row.workflow_code,
-                    row.workflow_version_id, row.status, row.raised_by, row.created_at, row.created_by]);
+                    row.workflow_version_id, row.status, row.raised_by, row.created_at, row.created_by,
+                    row.blind_review]);
             return row;
         }});
 }
@@ -546,7 +548,11 @@ exports.pipelineBoardAsync = async function(org_id, actor_person_id, requisition
     for (const application of applications) {
         const projected = await _projectAsync(org_id, application);
         const candidate = candidateById[application.candidate_id];
-        const candidate_name = candidate?.full_name || "—";
+        // Blind review would be trivially bypassed by reading the board instead
+        // of opening the drawer, so the same redaction applies here too.
+        const candidate_name = _blindReviewActive(requisition, projected.rounds) ?
+            _redactCandidate(candidate || {candidate_id: application.candidate_id}).full_name :
+            (candidate?.full_name || "—");
         if (projected.terminal?.kind == "rejected") {
             rejected.push({application_id: application.application_id, candidate_name,
                 reason: projected.terminal.reason}); continue;
@@ -620,7 +626,9 @@ exports.candidateRecordAsync = async function(org_id, actor_person_id, applicati
         [org_id, application_id])).map(row => _panelRow(row, names));
     const offers = await _offersWithApprovalsAsync(org_id, application_id, actor_person_id);
 
-    return {candidate, requisition: requisition ? {requisition_id: requisition.requisition_id,
+    const blindActive = _blindReviewActive(requisition, projected.rounds);
+    return {candidate: blindActive ? _redactCandidate(candidate) : candidate, blind_review_active: blindActive,
+        requisition: requisition ? {requisition_id: requisition.requisition_id,
             title: requisition.title, band: requisition.band, band_min: requisition.band_min,
             band_max: requisition.band_max} : null,
         application: {application_id, applied_at: application.applied_at, applied_via: application.applied_via,
@@ -1707,6 +1715,33 @@ function _project(rounds, transitions, scorecards) {
 function _cardScore(card) {
     const ratings = JSON.parse(card.criteria_ratings || "[]").map(r => r.rating).filter(Number.isInteger);
     return ratings.length ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10 : null;
+}
+
+/**
+ * K12 slice 4 — true only while the requisition's resume_review round
+ * hasn't resolved yet (round.status not_started/pending, _project's own
+ * vocabulary). Round objects already carry round_type via the {...r,
+ * status} spread _project returns, so no extra lookup is needed.
+ */
+const BLIND_ACTIVE_STATUSES = Object.freeze(["not_started", "pending"]);
+function _blindReviewActive(requisition, projectedRounds) {
+    if (!requisition?.blind_review) return false;
+    const resumeReviewRound = (projectedRounds || []).find(r => r.round_type == "resume_review");
+    return Boolean(resumeReviewRound && BLIND_ACTIVE_STATUSES.includes(resumeReviewRound.status));
+}
+
+/**
+ * Of the five fields the wireframe names, only full_name exists in this
+ * schema (no photo/age/address/institution anywhere) — redacting it alone
+ * would be theatrical, since email/phone/resume_ref are equally identity-
+ * revealing (a clicked résumé link or a named email handle defeats it), so
+ * all four are redacted together. Everything else on the row (timezone,
+ * source, availability_notes, referrer_person_id — none of them named by
+ * the spec) passes through unchanged.
+ */
+function _redactCandidate(candidate) {
+    return {...candidate, full_name: `Candidate ${candidate.candidate_id.slice(-4).toUpperCase()}`,
+        email: "(hidden during blind review)", phone: null, resume_ref: null};
 }
 
 async function _projectAsync(org_id, application) {
