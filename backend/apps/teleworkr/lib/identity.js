@@ -30,6 +30,7 @@ const spine = require(`${TELEWORKR_CONSTANTS.LIBDIR}/spine.js`);
 const dblayer = require(`${TELEWORKR_CONSTANTS.LIBDIR}/dblayer.js`);
 const permissions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/permissions.js`);
 const audit = require(`${TELEWORKR_CONSTANTS.LIBDIR}/audit.js`);
+const events = require(`${TELEWORKR_CONSTANTS.LIBDIR}/events.js`);
 
 /** The attributes an assertion must carry before an employment can be provisioned. */
 const REQUIRED_ASSERTION_ATTRIBUTES = Object.freeze(["employment_status", "jurisdiction", "start_date", "contract_type"]);
@@ -171,6 +172,10 @@ exports.provisionFromAssertionAsync = async function(result) {
             actor_kind: "system", detail: {source: "idp", start_date: employment.valid_from}});
         LOG.info(`Provisioned ${email} in ${org_id} from the IdP assertion, from ${employment.valid_from}.`);
         person.provisioning_status = null;      // the in-memory copy, cleared just now in the record
+
+        try {await events.emitAsync({org_id, action: "account.activated", person_id: person.person_id,
+            source: "web", detail: {}});}
+        catch (err) {LOG.error(`Could not record an account.activated event: ${err}`);}
     }
 
     result.person_id = person.person_id;

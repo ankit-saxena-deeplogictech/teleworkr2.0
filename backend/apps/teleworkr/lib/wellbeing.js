@@ -51,6 +51,7 @@ const windows = require(`${TELEWORKR_CONSTANTS.LIBDIR}/windows.js`);
 const leave = require(`${TELEWORKR_CONSTANTS.LIBDIR}/leave.js`);
 const tasks = require(`${TELEWORKR_CONSTANTS.LIBDIR}/tasks.js`);
 const notifications = require(`${TELEWORKR_CONSTANTS.LIBDIR}/notifications.js`);
+const events = require(`${TELEWORKR_CONSTANTS.LIBDIR}/events.js`);
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MINIMUM_COHORT = 5;
@@ -444,10 +445,14 @@ exports.evaluateSignalsAsync = async function(request) {
         }});
 
     for (const entry of result.newly_lit)
-        if (!(await _isMutedAsync(request.org_id, entry.person_id, entry.signal_code, evaluated_for)))
+        if (!(await _isMutedAsync(request.org_id, entry.person_id, entry.signal_code, evaluated_for))) {
             await notifications.notifyAsync({org_id: request.org_id, category: "wellbeing_signal",
                 recipient_person_id: entry.person_id, object_ref: entry.signal_code,
                 payload: {signal_code: entry.signal_code, label: SIGNAL_SPECS[entry.signal_code].label}});
+            try {await events.emitAsync({org_id: request.org_id, action: "signal.shown",
+                person_id: entry.person_id, source: "system", detail: {signal_code: entry.signal_code}});}
+            catch (err) {LOG.error(`Could not record a signal.shown event: ${err}`);}
+        }
 
     return {evaluated_for, batch_tag, people: result.people, lit_count: result.lit_count, new_lit_count: result.new_lit_count};
 }
@@ -539,6 +544,11 @@ exports.muteAsync = async function(request) {
             VALUES (?,?,?,?,?,?,?)`,
         [_uuid(), request.org_id, request.person_id, request.signal_code || null, request.muted_until,
             request.reason || null, _now()]);
+
+    try {await events.emitAsync({org_id: request.org_id, action: "signal.muted", person_id: request.person_id,
+        source: "web", detail: {signal_code: request.signal_code || "all"}});}
+    catch (err) {LOG.error(`Could not record a signal.muted event: ${err}`);}
+
     return "muted";
 }
 

@@ -31,6 +31,7 @@ const dblayer = require(`${TELEWORKR_CONSTANTS.LIBDIR}/dblayer.js`);
 const permissions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/permissions.js`);
 const audit = require(`${TELEWORKR_CONSTANTS.LIBDIR}/audit.js`);
 const spine = require(`${TELEWORKR_CONSTANTS.LIBDIR}/spine.js`);
+const events = require(`${TELEWORKR_CONSTANTS.LIBDIR}/events.js`);
 
 const SOURCES = Object.freeze(["timer", "manual", "reconstructed", "calendar"]);
 const STATUS = Object.freeze({OPEN: "open", SUBMITTED: "submitted", RETURNED: "returned",
@@ -82,6 +83,11 @@ exports.recordEventAsync = async function(event) {
         }
         throw err;
     }
+
+    try {await events.emitAsync({org_id: row.org_id, action: "time_entry.created", person_id: row.person_id,
+        occurred_at: row.started_at || _now(), source: "web", detail: {source: row.source}});}
+    catch (err) {LOG.error(`Could not record a time_entry.created event: ${err}`);}
+
     return row;
 }
 
@@ -160,7 +166,7 @@ function _syncSummary(event) {
  */
 exports.editOwnAsync = async function(request) {
     if (!request.reason) throw new Error("An edit needs a reason. The edit trail shows it forever (C5).");
-    return await dblayer.runInTransactionAsync(async exec => {
+    const result = await dblayer.runInTransactionAsync(async exec => {
         const original = await _getEventViaAsync(exec, request.org_id, request.entry_event_id);
         if (!original || original.person_id != request.person_id)
             throw new Error("The entry to edit was not found, or it is not yours.");
@@ -174,8 +180,14 @@ exports.editOwnAsync = async function(request) {
             actor_person_id: request.person_id, subject_person_id: request.person_id,
             reason: request.reason, detail: {from: _editSummary(original), to: _editSummary(next)}},
             await permissions.effectivePermissionsAsync(request.org_id, request.person_id, _today(), exec));
-        return next;
+        return {next, post_submit: timesheet?.status === STATUS.RETURNED};
     });
+
+    try {await events.emitAsync({org_id: request.org_id, action: "time_entry.edited", person_id: request.person_id,
+        source: "web", detail: {post_submit: result.post_submit}});}
+    catch (err) {LOG.error(`Could not record a time_entry.edited event: ${err}`);}
+
+    return result.next;
 }
 
 /**
@@ -190,7 +202,7 @@ exports.editOwnAsync = async function(request) {
 exports.editOtherAsync = async function(request) {
     if (!request.reason) throw new Error(
         "Editing someone else's time needs a reason. It is recorded in the audit entry (L2).");
-    return await audit.performAsync({
+    const result = await audit.performAsync({
         org_id: request.org_id, actor_person_id: request.actor_person_id,
         capability: "time_entry.edit_other", subject_person_id: request.subject_person_id,
         reason: request.reason,
@@ -203,9 +215,16 @@ exports.editOtherAsync = async function(request) {
                 throw new Error("The entry to edit was not found for that person.");
             const timesheet = await _timesheetForDateViaAsync(exec, request.org_id, request.subject_person_id, original.entry_date);
             _assertEditable(timesheet, original.entry_date);
-            return await _appendEventViaAsync(exec, {..._applyChanges(original, request.changes),
+            const next = await _appendEventViaAsync(exec, {..._applyChanges(original, request.changes),
                 supersedes_entry_event_id: original.entry_event_id, reason: request.reason});
+            return {next, post_submit: timesheet?.status === STATUS.RETURNED};
         }});
+
+    try {await events.emitAsync({org_id: request.org_id, action: "time_entry.edited",
+        person_id: request.subject_person_id, source: "web", detail: {post_submit: result.post_submit}});}
+    catch (err) {LOG.error(`Could not record a time_entry.edited event: ${err}`);}
+
+    return result.next;
 }
 
 /**

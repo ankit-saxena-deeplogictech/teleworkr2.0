@@ -60,6 +60,7 @@ const permissions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/permissions.js`);
 const audit = require(`${TELEWORKR_CONSTANTS.LIBDIR}/audit.js`);
 const leave = require(`${TELEWORKR_CONSTANTS.LIBDIR}/leave.js`);
 const notifications = require(`${TELEWORKR_CONSTANTS.LIBDIR}/notifications.js`);
+const events = require(`${TELEWORKR_CONSTANTS.LIBDIR}/events.js`);
 
 const VISIBILITIES = Object.freeze(["private", "space", "org", "public"]);
 const REVERSIBLE_VISIBILITIES = Object.freeze(["private", "space", "org"]);
@@ -303,7 +304,7 @@ exports.publishPageAsync = async function(request) {
     if (outstanding.length) throw new Error(
         `${outstanding.length} review(s) are still outstanding — publish is gated on them.`);
 
-    return await audit.performAsync({
+    const result = await audit.performAsync({
         org_id: request.org_id, actor_person_id: request.actor_person_id,
         capability: "wiki.write",
         audit: {action: "wiki.page_published", object_type: "wiki_page", object_ref: request.page_id,
@@ -320,6 +321,12 @@ exports.publishPageAsync = async function(request) {
                 [STATUS.PUBLISHED, cadence, _now(), request.actor_person_id, request.page_id]);
             return {page_id: request.page_id, version: version.version};
         }});
+
+    try {await events.emitAsync({org_id: request.org_id, action: "page.published",
+        person_id: request.actor_person_id, source: "web", detail: {page_id: request.page_id}});}
+    catch (err) {LOG.error(`Could not record a page.published event: ${err}`);}
+
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -407,6 +414,11 @@ exports.markStillCorrectAsync = async function(request) {
         "Only the page owner can mark it still correct (N4 item 4).");
     await dblayer.runCmdOrThrow("UPDATE wiki_page SET last_reviewed_at=?, last_reviewed_by=? WHERE page_id=?",
         [_now(), request.actor_person_id, request.page_id]);
+
+    try {await events.emitAsync({org_id: request.org_id, action: "page.reviewed",
+        person_id: request.actor_person_id, source: "web", detail: {page_id: request.page_id}});}
+    catch (err) {LOG.error(`Could not record a page.reviewed event: ${err}`);}
+
     return "reviewed";
 }
 

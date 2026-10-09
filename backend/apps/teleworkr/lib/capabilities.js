@@ -172,6 +172,17 @@ const CATALOGUE = Object.freeze({
     // manually (a direct audit.writeAsync call), same as candidate.read —
     // this is a read, never routed through performAsync.
     "diversity.read_aggregate": {label: "Read adverse-impact reporting by group", scopes: [SCOPES.ORG],
+        always_audited: true},
+
+    // product events & instrumentation (A10) — build-health/product metrics,
+    // I3's own framing, an admin/engineering concern rather than an HR one
+    // (unlike diversity.read_aggregate, which is hr-only for a named legal
+    // reason). operate runs the 90-day retention rollup; read_aggregate reads
+    // the computed numbers. Both always_audited the same way candidate_
+    // retention's pair and diversity.read_aggregate already are.
+    "events.operate": {label: "Run the product-event retention rollup", scopes: [SCOPES.ORG],
+        always_audited: true},
+    "events.read_aggregate": {label: "Read product metrics (I3's eight numbers)", scopes: [SCOPES.ORG],
         always_audited: true}
 });
 
@@ -233,7 +244,8 @@ const BUILTIN_ROLES = Object.freeze({
         ["workflow.publish", SCOPES.ORG], ["requisition.approve", SCOPES.ORG], ["requisition.create", SCOPES.ORG],
         ["candidate.read", SCOPES.ORG], ["stage_transition.record", SCOPES.ORG], ["scorecard.submit", SCOPES.ORG],
         ["panel.schedule", SCOPES.ORG], ["candidate_portal.manage", SCOPES.ORG], ["offer.approve", SCOPES.ORG],
-        ["candidate_retention.operate", SCOPES.ORG]]},
+        ["candidate_retention.operate", SCOPES.ORG],
+        ["events.operate", SCOPES.ORG], ["events.read_aggregate", SCOPES.ORG]]},
     guest: {label: "Guest", capabilities: [["audit.read_own", SCOPES.SELF]]}
 });
 

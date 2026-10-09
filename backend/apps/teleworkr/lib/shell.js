@@ -92,6 +92,12 @@ const SURFACES = Object.freeze({
     data:        {console: "Admin", label: "Data governance", screen: "L3", order: 122, classification: CLASS.EXCLUSIVE,
         any_of: ["data.manage_requests", "data.erase"]},
 
+    // A10: build-health/product instrumentation — I3's own eight numbers,
+    // minus screen.viewed (an unresolved disclosure question, A10's own
+    // "Open" note). Admin-only — a product/engineering concern, not HR's.
+    metrics: {console: "Admin", label: "Metrics", screen: "A10", order: 123, classification: CLASS.EXCLUSIVE,
+        capability: "events.read_aggregate"},
+
     // The Assigned group (P2 item 5): training, certificates and surveys share
     // one nav group, because from a person's side all three are the same thing —
     // something the organisation has asked of you, with a deadline.

@@ -23,6 +23,7 @@ const dblayer = require(`${TELEWORKR_CONSTANTS.LIBDIR}/dblayer.js`);
 const permissions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/permissions.js`);
 const audit = require(`${TELEWORKR_CONSTANTS.LIBDIR}/audit.js`);
 const time = require(`${TELEWORKR_CONSTANTS.LIBDIR}/time.js`);
+const events = require(`${TELEWORKR_CONSTANTS.LIBDIR}/events.js`);
 
 const STATUS = Object.freeze({TO_DO: "to_do", IN_PROGRESS: "in_progress", IN_REVIEW: "in_review",
     DONE: "done", BLOCKED: "blocked"});
@@ -337,7 +338,8 @@ exports.addBlockAsync = async function(request) {
     await _requireAsync(request.org_id, request.actor_person_id, "task.edit");
     if (!request.reason) throw new Error(
         "A block needs a reason. Blocked without a reason is just a colour (D1).");
-    return await dblayer.runInTransactionAsync(async exec => {
+    let newlyBlockedTaskId = null;
+    const relation = await dblayer.runInTransactionAsync(async exec => {
         const blocker = await _taskByRefViaAsync(exec, request.org_id, request.blocker_task_ref);
         const blocked = await _taskByRefViaAsync(exec, request.org_id, request.blocked_task_ref);
         if (!blocker || !blocked) throw new Error("Both tasks of a block must exist.");
@@ -357,9 +359,16 @@ exports.addBlockAsync = async function(request) {
                 [_now(), blocked.task_id]);
             await _appendEventViaAsync(exec, request.org_id, blocked.task_id, request.actor_person_id,
                 "task.status_changed", {from: blocked.status, to: STATUS.BLOCKED, reason: request.reason});
+            newlyBlockedTaskId = blocked.task_id;
         }
         return relation;
     });
+
+    if (newlyBlockedTaskId) try {await events.emitAsync({org_id: request.org_id, action: "task.blocked",
+        person_id: request.actor_person_id, source: "web", detail: {task_id: newlyBlockedTaskId}});}
+    catch (err) {LOG.error(`Could not record a task.blocked event: ${err}`);}
+
+    return relation;
 }
 
 /**
@@ -370,18 +379,26 @@ exports.addBlockAsync = async function(request) {
  */
 exports.resolveBlockAsync = async function(request) {
     await _requireAsync(request.org_id, request.actor_person_id, "task.edit");
-    return await dblayer.runInTransactionAsync(async exec => {
+    let blockedTaskId = null;
+    const result = await dblayer.runInTransactionAsync(async exec => {
         const blocker = await _taskByRefViaAsync(exec, request.org_id, request.blocker_task_ref);
         const blocked = await _taskByRefViaAsync(exec, request.org_id, request.blocked_task_ref);
         if (!blocker || !blocked) throw new Error("Both tasks of a block must exist.");
-        const result = await exec.runCmd(
+        await exec.runCmd(
             `UPDATE task_relation SET resolved_at=? WHERE org_id=? AND from_task_id=? AND to_task_id=?
                 AND relation_type='blocks' AND resolved_at IS NULL`,
             [_now(), request.org_id, blocker.task_id, blocked.task_id]);
         await _appendEventViaAsync(exec, request.org_id, blocked.task_id, request.actor_person_id,
             "task.unblocked", {blocker: blocker.task_ref});
+        blockedTaskId = blocked.task_id;
         return "unblocked";
     });
+
+    if (blockedTaskId) try {await events.emitAsync({org_id: request.org_id, action: "task.unblocked",
+        person_id: request.actor_person_id, source: "web", detail: {task_id: blockedTaskId}});}
+    catch (err) {LOG.error(`Could not record a task.unblocked event: ${err}`);}
+
+    return result;
 }
 
 // ---------------------------------------------------------------------------

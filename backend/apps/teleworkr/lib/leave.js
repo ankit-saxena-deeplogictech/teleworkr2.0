@@ -28,6 +28,7 @@ const audit = require(`${TELEWORKR_CONSTANTS.LIBDIR}/audit.js`);
 const windows = require(`${TELEWORKR_CONSTANTS.LIBDIR}/windows.js`);
 const notifications = require(`${TELEWORKR_CONSTANTS.LIBDIR}/notifications.js`);
 const policyconflicts = require(`${TELEWORKR_CONSTANTS.LIBDIR}/policy_conflicts.js`);
+const events = require(`${TELEWORKR_CONSTANTS.LIBDIR}/events.js`);
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const EXPIRING_WINDOW_DAYS = 10;
@@ -531,6 +532,11 @@ exports.requestLeaveAsync = async function(request) {
             row.notice_days, row.fields, row.reason, row.created_at, row.submitted_at]);
 
     LOG.info(`Leave request ${row.leave_request_id}: ${request.leave_type} ${row.from_date}–${row.to_date} for ${request.person_id}.`);
+
+    try {await events.emitAsync({org_id: request.org_id, action: "approval.requested", person_id: request.person_id,
+        source: "web", detail: {leave_request_id: row.leave_request_id}});}
+    catch (err) {LOG.error(`Could not record an approval.requested event: ${err}`);}
+
     return {request: row, evaluation};
 }
 
@@ -796,6 +802,11 @@ exports.approveLeaveRequestAsync = async function(request) {
             object_ref: pending.leave_request_id});
     } catch (err) {LOG.error(`Could not notify ${pending.person_id} of their leave approval: ${err}`);}
 
+    try {await events.emitAsync({org_id: request.org_id, action: "approval.decided",
+        person_id: request.actor_person_id, source: "web",
+        detail: {leave_request_id: pending.leave_request_id, decision: isFinal ? "approved" : "partial"}});}
+    catch (err) {LOG.error(`Could not record an approval.decided event: ${err}`);}
+
     return {result, step: token, final: isFinal, balance_after: balanceAfter};
 }
 
@@ -833,6 +844,11 @@ exports.declineLeaveRequestAsync = async function(request) {
             payload: {decision: "declined", leave_type: pending.leave_type, reason: request.reason},
             object_ref: pending.leave_request_id});
     } catch (err) {LOG.error(`Could not notify ${pending.person_id} of their leave decline: ${err}`);}
+
+    try {await events.emitAsync({org_id: request.org_id, action: "approval.decided",
+        person_id: request.actor_person_id, source: "web",
+        detail: {leave_request_id: pending.leave_request_id, decision: "declined"}});}
+    catch (err) {LOG.error(`Could not record an approval.decided event: ${err}`);}
 
     return declined;
 }

@@ -20,6 +20,7 @@ const dblayer = require(`${TELEWORKR_CONSTANTS.LIBDIR}/dblayer.js`);
 const time = require(`${TELEWORKR_CONSTANTS.LIBDIR}/time.js`);
 const tasks = require(`${TELEWORKR_CONSTANTS.LIBDIR}/tasks.js`);
 const calendar = require(`${TELEWORKR_CONSTANTS.LIBDIR}/calendar.js`);
+const events = require(`${TELEWORKR_CONSTANTS.LIBDIR}/events.js`);
 
 const BREAK_COLS = "break_id, org_id, person_id, entry_date, started_at, ended_at, reason, source, supersedes_break_id, recorded_at";
 const IDLE_DECISIONS = Object.freeze({KEEP: "keep", DISCARD: "discard", BREAK: "break"});
@@ -54,6 +55,9 @@ exports.clockInAsync = async function(request) {
         client_event_id: request.client_event_id, task_ref: request.task_ref || null,
         project: request.project || null, note: request.note || null,
         started_at: at, source: "timer"});
+
+    try {await events.emitAsync({org_id, action: "timer.started", person_id, occurred_at: at, source: "web"});}
+    catch (err) {LOG.error(`Could not record a timer.started event: ${err}`);}
 
     return {entry, session: await exports.sessionAsync(org_id, person_id, day)};
 }
