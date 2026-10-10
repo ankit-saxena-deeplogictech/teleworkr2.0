@@ -66,6 +66,7 @@ async function _view() {
             <button class="tr-tab${state.tab=="notifications"?" on":""}" data-st="tab" data-tab="notifications">Notifications</button>
             <button class="tr-tab${state.tab=="profile"?" on":""}" data-st="tab" data-tab="profile">Profile</button>
             <button class="tr-tab${state.tab=="clock"?" on":""}" data-st="tab" data-tab="clock">Clock &amp; timer</button>
+            <button class="tr-tab${state.tab=="accessibility"?" on":""}" data-st="tab" data-tab="accessibility">Accessibility</button>
             <button class="tr-tab${state.tab=="more"?" on":""}" data-st="tab" data-tab="more">More</button>
         </div>
         <div class="tr-view" id="st-view"></div>
@@ -78,6 +79,7 @@ async function _view() {
         if (state.tab == "notifications") await _notifications(view);
         else if (state.tab == "profile") _profile(view);
         else if (state.tab == "clock") await _clockPrefs(view);
+        else if (state.tab == "accessibility") await _accessibility(view);
         else _more(view);
     } catch (err) {
         view.innerHTML = states.error({title: "Couldn't load settings", what: err.message,
@@ -176,6 +178,45 @@ async function _clockPrefs(root) {
 }
 
 // ---------------------------------------------------------------------------
+// Accessibility (I2 slice 1) — client-local, same mechanism as the theme
+// toggle; applied immediately via shell.mjs, nothing server-side.
+// ---------------------------------------------------------------------------
+
+async function _accessibility(root) {
+    const {shell} = await import("../shell.mjs");
+    const prefs = shell.a11yPrefs();
+
+    root.innerHTML = `<div class="tr-card">
+        <div class="up t3">Accessibility — the floor, not the ceiling</div>
+        <div class="tr-track-row">
+            <span class="grow sm">Reduce motion</span>
+            <input type="checkbox" id="st-reduce-motion" ${prefs.reduce_motion ? "checked" : ""}>
+        </div>
+        <div class="tr-track-row">
+            <span class="grow sm">Increase contrast</span>
+            <input type="checkbox" id="st-contrast" ${prefs.contrast == "high" ? "checked" : ""}>
+        </div>
+        <div class="tr-track-row">
+            <span class="grow sm">Keyboard-only mode (stronger focus outline)</span>
+            <input type="checkbox" id="st-kbd-mode" ${prefs.kbd_mode ? "checked" : ""}>
+        </div>
+        <div class="sm t3" style="margin-top:10px">Press <span class="mono">?</span> anywhere for the keyboard
+            shortcut sheet.</div>
+        <div class="sm t3" style="margin-top:6px">Larger text isn't built yet — every font size in this
+            product is fixed, not scalable, so a text-size setting would need a CSS rework first, not just
+            a toggle. Disabling auto-playing video and captions-by-default have nothing to control yet
+            either — no video feature exists in this product.</div>
+    </div>`;
+
+    root.querySelector("#st-reduce-motion").addEventListener("change", event =>
+        {shell.setA11yPrefs({reduce_motion: event.target.checked}); states.toast({message: "Saved."});});
+    root.querySelector("#st-contrast").addEventListener("change", event =>
+        {shell.setA11yPrefs({contrast: event.target.checked ? "high" : "normal"}); states.toast({message: "Saved."});});
+    root.querySelector("#st-kbd-mode").addEventListener("change", event =>
+        {shell.setA11yPrefs({kbd_mode: event.target.checked}); states.toast({message: "Saved."});});
+}
+
+// ---------------------------------------------------------------------------
 // More — pure links, and the I2 note
 // ---------------------------------------------------------------------------
 
@@ -187,8 +228,8 @@ function _more(root) {
             <button class="btn" data-st="goto" data-surface="me">Open</button></div>
         <div class="tr-track-row"><span class="grow sm">Connected apps</span>
             <button class="btn" data-st="goto" data-surface="apps">Open</button></div>
-        <div class="sm t3" style="margin-top:10px">Language &amp; region and Accessibility are a separate
-            module (I2) and aren't built yet.</div>
+        <div class="sm t3" style="margin-top:10px">Language &amp; region is a separate module (I2)
+            and isn't built yet.</div>
     </div>`;
 
     root.querySelectorAll('[data-st="goto"]').forEach(button => button.addEventListener("click", async _ => {

@@ -75,9 +75,33 @@
     }
 }
 
+/* I2 slice 1 — increase contrast, a designed adjustment to the tokens WCAG
+   contrast actually turns on (border/text), not a blanket CSS filter.
+   Two mutually-exclusive, higher-specificity selectors (two attributes each,
+   same as [data-theme="x"][data-contrast="high"] would be) so this always
+   wins over the OS-preference media query above regardless of source order,
+   whether or not an explicit in-app theme has been chosen. */
+:root[data-contrast="high"]:not([data-theme="day"]) {
+    --stroke: #3A4A6E; --stroke-2: #4C5E85;
+    --t2: #C2CDE2; --t3: #A7B3CE;
+}
+:root[data-theme="day"][data-contrast="high"] {
+    --stroke: #A9B4C9; --stroke-2: #8A96AE;
+    --t2: #35405A; --t3: #475268;
+}
+
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after {animation: none !important; transition: none !important;} html {scroll-behavior: auto;} }
+
+/* I2 slice 1 — explicit overrides, independent of the OS setting, same
+   "no preference expressed gets the system's, a choice gets what was chosen"
+   logic the day/night theme blocks above already use. */
+:root[data-reduce-motion="on"] *, :root[data-reduce-motion="on"] *::before, :root[data-reduce-motion="on"] *::after
+    { animation: none !important; transition: none !important; }
+:root[data-reduce-motion="on"] html { scroll-behavior: auto; }
+
+:root[data-kbd-mode="on"] :focus-visible { outline-width: 3px; outline-offset: 3px; }
 
 body {
     margin: 0;

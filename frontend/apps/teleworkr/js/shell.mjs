@@ -63,6 +63,7 @@ const SCREENS = {day: renderDayBoard, training: renderTraining, trainingtrack: r
 const CLOCK_POLL_MS = 30000;        // the server is the record; the local tick is only the seconds between polls
 const NOTIF_POLL_MS = 60000;
 const THEME_KEY = "__teleworkr_theme";
+const A11Y_KEY = "__teleworkr_a11y_prefs";   // I2 slice 1 — client-local, same as THEME_KEY: purely presentational, no server meaning
 
 /** A9: category label and whether the person may change its volume — mirrors lib/notifications.js's own CATALOGUE. */
 const CATEGORY_META = {
@@ -91,6 +92,7 @@ const _me = _ => ({id: session.get(APP_CONSTANTS.USERID)?.toString(),
  */
 async function initShell() {
     _applyTheme(session.get(THEME_KEY)?.toString());
+    _applyA11yPrefs(_a11yPrefs());
     _wireChrome();
 
     document.querySelector("#surface").innerHTML = states.loading({rows: 4});
@@ -739,6 +741,15 @@ function _wireChrome() {
         }
     });
 
+    // I2 slice 1: "?" opens the shortcut sheet — guarded so a literal "?"
+    // typed into a field (unlike cmd-K, a bare key needs this) never fires it.
+    document.addEventListener("keydown", event => {
+        if (event.key != "?" || event.metaKey || event.ctrlKey || event.altKey) return;
+        const target = document.activeElement;
+        if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
+        event.preventDefault(); _showShortcutSheet();
+    });
+
     window.addEventListener("offline", _ => _systemBanner("local_only",
         "You are offline. Time is still recording locally.", "It syncs when you reconnect."));
     window.addEventListener("online", async _ => {
@@ -758,6 +769,58 @@ function _applyTheme(theme) {
     if (theme == "day" || theme == "night") document.documentElement.setAttribute("data-theme", theme);
 }
 
+// ---------------------------------------------------------------------------
+// I2 slice 1 — accessibility preferences, same client-local shape as theme
+// ---------------------------------------------------------------------------
+
+/** @returns {object} {reduce_motion, contrast, kbd_mode} — all false/"normal" when nothing is stored yet */
+function _a11yPrefs() {
+    try {return {reduce_motion: false, contrast: "normal", kbd_mode: false, ...JSON.parse(session.get(A11Y_KEY)||"{}")};}
+    catch (err) {return {reduce_motion: false, contrast: "normal", kbd_mode: false};}
+}
+
+function _applyA11yPrefs(prefs) {
+    const root = document.documentElement;
+    if (prefs.reduce_motion) root.setAttribute("data-reduce-motion", "on"); else root.removeAttribute("data-reduce-motion");
+    if (prefs.kbd_mode) root.setAttribute("data-kbd-mode", "on"); else root.removeAttribute("data-kbd-mode");
+    if (prefs.contrast == "high") root.setAttribute("data-contrast", "high"); else root.removeAttribute("data-contrast");
+}
+
+/** Persists and immediately applies — called from the I1 Settings screen's Accessibility tab. */
+function setA11yPrefs(partial) {
+    const merged = {..._a11yPrefs(), ...partial};
+    session.set(A11Y_KEY, JSON.stringify(merged));
+    _applyA11yPrefs(merged);
+    return merged;
+}
+
+/** The only three real keyboard shortcuts in this app — listed honestly,
+ *  not invented. Same backdrop+dialog+Esc-to-close shape as
+ *  states.confirmAction, duplicated locally rather than imported (this
+ *  app's established per-module convention). */
+function _showShortcutSheet() {
+    const back = document.createElement("div");
+    back.className = "confirm-back";
+    back.innerHTML = `<div class="confirm" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+        <h3>Keyboard shortcuts</h3>
+        <div class="col" style="gap:8px;margin-top:10px">
+            <div class="row"><span class="mono up" style="width:90px">⌘K / Ctrl+K</span><span>Open the command bar</span></div>
+            <div class="row"><span class="mono up" style="width:90px">Esc</span><span>Close the open dialog</span></div>
+            <div class="row"><span class="mono up" style="width:90px">?</span><span>This sheet</span></div>
+        </div>
+        <div class="actions" style="margin-top:14px"><button class="btn pri" data-x="close">Close</button></div>
+    </div>`;
+
+    const done = _ => {back.remove(); document.removeEventListener("keydown", onKey);};
+    const onKey = event => {if (event.key == "Escape") done();};
+    back.addEventListener("click", event => {
+        if (event.target.getAttribute?.("data-x") == "close" || event.target == back) done();
+    });
+    document.addEventListener("keydown", onKey);
+    document.body.appendChild(back);
+    back.querySelector('[data-x="close"]').focus();
+}
+
 /** Stops the timers, so a signed-out shell does not keep polling. */
 function stopShell() {
     if (clockTimer) clearInterval(clockTimer);
@@ -767,4 +830,5 @@ function stopShell() {
 }
 
 export const shell = {initShell, refreshProjection, setSurface, stopShell, toggleClock,
+    a11yPrefs: _a11yPrefs, setA11yPrefs,
     get projection() {return projection;}};
