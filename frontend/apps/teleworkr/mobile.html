@@ -1,0 +1,89 @@
+<style>
+/*
+ * A11 — mobile, designed. A standalone page outside the desktop shell, same
+ * top-level pattern as portal.html (K9): no shell.css, no shell.initShell(),
+ * just tokens.css/states.css/training.css, loaded below, the same component
+ * layer as every screen inside the shell. Session-gated (not a magic link) —
+ * reached by a signed-in employee, same as main.html.
+ * (C) 2026 TekMonks. All rights reserved.
+ */
+
+body {
+	margin: 0; padding: 0;
+	font-family: var(--f-body);
+	background: var(--void);
+	color: var(--t1);
+	min-height: 100vh;
+}
+
+div.mob-wrap {
+	max-width: 480px;
+	margin: 0 auto;
+	min-height: 100vh;
+	display: flex;
+	flex-direction: column;
+}
+
+div.mob-top {
+	display: flex; align-items: center; justify-content: space-between;
+	padding: 14px 16px 8px;
+}
+div.mob-top .mark { font-family: var(--f-display); font-weight: 600; font-size: 13px; }
+div.mob-top a { color: var(--t3); font-size: 12px; text-decoration: none; }
+div.mob-top a:hover { color: var(--t1); }
+
+div.mob-body { flex: 1; padding: 4px 16px 16px; }
+
+/* a 44px minimum touch target throughout this page — I2's floor, outdoor light doesn't relax it */
+nav.mob-tabs {
+	display: flex; border-top: 1px solid var(--stroke); background: var(--panel);
+	position: sticky; bottom: 0;
+}
+nav.mob-tabs button {
+	flex: 1; min-height: 56px; border: none; background: none; cursor: pointer;
+	display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+	font-family: var(--f-body); font-size: 11px; color: var(--t3);
+}
+nav.mob-tabs button.on { color: var(--brand); font-weight: 600; }
+</style>
+{{{APP_CONSTANTS.MOBILE_MEDIA_QUERY_PORTRAIT_START}}}
+	div.mob-wrap { padding: 0; }
+{{{APP_CONSTANTS.MOBILE_MEDIA_QUERY_PORTRAIT_END}}}
+
+<!doctype html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="apple-mobile-web-app-capable" content="yes"/>
+	<meta name="mobile-web-app-capable" content="yes"/>
+
+	<link href="./img/favicon.svg" rel="icon" type="image/svg+xml">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="./css/tokens.css">
+	<link rel="stylesheet" href="./css/states.css">
+	<link rel="stylesheet" href="./css/training.css">
+
+	<title>TeleWorkr</title>
+
+	<script type="module">
+	import {APP_CONSTANTS as RAW_CONSTANTS} from "./js/constants.mjs";
+	window.APP_CONSTANTS = window.APP_CONSTANTS || RAW_CONSTANTS;
+	import {render} from "./js/mobile.mjs";
+	render(document.getElementById("mob-root"));
+	</script>
+</head>
+
+<body>
+<div class="mob-wrap">
+	<div class="mob-top">
+		<span class="mark">TeleWorkr</span>
+		<a href="./main.html">Full site</a>
+	</div>
+	<div class="mob-body" id="mob-root"></div>
+</div>
+</body>
+
+</html>

@@ -17,13 +17,14 @@ const INDEX_HTML = APP_PATH+"/index.html";
 const ERROR_HTML = APP_PATH+"/error.html";
 const LOGINRESULT_HTML = APP_PATH+"/loginresult.html";
 const PORTAL_HTML = APP_PATH+"/portal.html";      // K9: the candidate portal — public, outside the login-gated shell
-const ALL_USER_PAGES = [window.location.origin, LOGIN_HTML, INDEX_HTML, ERROR_HTML, LOGINRESULT_HTML, 
+const MOBILE_HTML = APP_PATH+"/mobile.html";      // A11: Clock/Next/Who-needs-me — session-gated, outside the desktop shell
+const ALL_USER_PAGES = [window.location.origin, LOGIN_HTML, INDEX_HTML, ERROR_HTML, LOGINRESULT_HTML,
     $$.MONKSHU_CONSTANTS.ERROR_HTML, `${APP_PATH}/.+\.html`];
 const ABOUT_URL = "https://teleworkr.com/";
 
 export const APP_CONSTANTS = {
-    FRONTEND, BACKEND, APP_PATH, APP_NAME, COMPONENTS_PATH, API_PATH, LIB_PATH, CONF_PATH,  
-    MAIN_HTML, LOGIN_HTML, INDEX_HTML, ERROR_HTML, LOGINRESULT_HTML, PORTAL_HTML, ABOUT_URL,
+    FRONTEND, BACKEND, APP_PATH, APP_NAME, COMPONENTS_PATH, API_PATH, LIB_PATH, CONF_PATH,
+    MAIN_HTML, LOGIN_HTML, INDEX_HTML, ERROR_HTML, LOGINRESULT_HTML, PORTAL_HTML, MOBILE_HTML, ABOUT_URL,
 
     SESSION_NOTE_ID: "com_monkshu_ts",
 
@@ -44,8 +45,9 @@ export const APP_CONSTANTS = {
     ADMIN_ROLE: "admin",
 
     // Permissions and keys
-    PERMISSIONS_MAP: { 
-        user:[...ALL_USER_PAGES, MAIN_HTML], admin:[...ALL_USER_PAGES, MAIN_HTML], guest:[...ALL_USER_PAGES] },
+    PERMISSIONS_MAP: {
+        user:[...ALL_USER_PAGES, MAIN_HTML, MOBILE_HTML], admin:[...ALL_USER_PAGES, MAIN_HTML, MOBILE_HTML],
+        guest:[...ALL_USER_PAGES] },
     API_KEYS: {"*":"fheiwu98237hjief8923ydewjidw834284hwqdnejwr79389"},
     KEY_HEADER: "X-API-Key"
 }
