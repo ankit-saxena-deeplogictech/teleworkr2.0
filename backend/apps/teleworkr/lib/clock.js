@@ -325,4 +325,35 @@ exports.sessionAsync = async function(org_id, person_id, entry_date) {
         state: openBreak ? "break" : (status.running ? "running" : "not_clocked_in")};
 }
 
+// ---------------------------------------------------------------------------
+// I1 — the one real Clock & timer preference: confirm before switching
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether switching the clock to another task asks first. Absence of a row
+ * means the wireframe's own stated default — on.
+ * @param {string} org_id The org
+ * @param {string} person_id The person
+ * @returns {boolean} true unless the person has explicitly turned it off
+ */
+exports.confirmBeforeSwitchAsync = async function(org_id, person_id) {
+    const rows = await dblayer.getQueryOrThrow(
+        "SELECT confirm_before_switch FROM clock_preference WHERE org_id=? AND person_id=?", [org_id, person_id]);
+    return rows.length ? Boolean(rows[0].confirm_before_switch) : true;
+}
+
+/**
+ * @param {string} org_id The org
+ * @param {string} person_id The person
+ * @param {boolean} value Whether switching should ask first
+ */
+exports.setConfirmBeforeSwitchAsync = async function(org_id, person_id, value) {
+    await dblayer.runCmdOrThrow(
+        `INSERT INTO clock_preference (org_id, person_id, confirm_before_switch, updated_at) VALUES (?,?,?,?)
+            ON CONFLICT (org_id, person_id) DO UPDATE SET confirm_before_switch=excluded.confirm_before_switch,
+                updated_at=excluded.updated_at`,
+        [org_id, person_id, value ? 1 : 0, _now()]);
+    return {confirm_before_switch: Boolean(value)};
+}
+
 exports.IDLE_DECISIONS = IDLE_DECISIONS;

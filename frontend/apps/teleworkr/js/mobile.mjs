@@ -289,6 +289,13 @@ async function _switchTask() {
 
     const taskRef = await taskPicker.pick({title: "Switch the clock to", tasks: open});
     if (!taskRef) return;
+
+    const prefs = await _call(API_CLOCK, "preferences", {});
+    if (prefs?.confirm_before_switch !== false) {
+        const confirmed = await states.confirmAction({title: `Switch the clock to ${taskRef}?`, confirmLabel: "Switch"});
+        if (!confirmed) return;
+    }
+
     const switched = await _call(API_CLOCK, "switch", {task_ref: taskRef});
     if (!switched) return;
     states.toast({message: `Clock moved to ${taskRef}.`});

@@ -12,6 +12,8 @@
  *  op - break_start    - Starts a break; the clock stops because a break is not worked time
  *  op - break_end      - Ends the break, optionally resuming the task it paused
  *  op - idle           - Resolves an idle stretch: keep, discard or break
+ *  op - preferences    - I1: whether switching the clock asks first
+ *  op - set_preference - I1: sets that preference
  *
  * (C) 2026 TekMonks. All rights reserved.
  */
@@ -74,6 +76,15 @@ exports.doService = async jsonReq => {
                     person_id: actor.person_id, decision: jsonReq.decision, idle_seconds: jsonReq.idle_seconds,
                     at: jsonReq.at, entry_date: jsonReq.date})};
             }
+            case "preferences": {
+                const confirm_before_switch = await clock.confirmBeforeSwitchAsync(jsonReq.org, actor.person_id);
+                return {...CONSTANTS.TRUE_RESULT, confirm_before_switch};
+            }
+            case "set_preference": {
+                const result = await clock.setConfirmBeforeSwitchAsync(jsonReq.org, actor.person_id,
+                    jsonReq.confirm_before_switch);
+                return {...CONSTANTS.TRUE_RESULT, ...result};
+            }
             default: return CONSTANTS.FALSE_RESULT;
         }
     } catch (err) {
@@ -90,4 +101,4 @@ const _actorAsync = async jsonReq => {
 
 const validateRequest = jsonReq => jsonReq && jsonReq.id && jsonReq.org &&
     ["status", "sync", "session", "in", "out", "out_preview", "switch",
-        "break_start", "break_end", "idle"].includes(jsonReq.op);
+        "break_start", "break_end", "idle", "preferences", "set_preference"].includes(jsonReq.op);

@@ -400,6 +400,14 @@ async function _switchTask(root) {
 
     const taskRef = await taskPicker.pick({title: "Switch the clock to", tasks: open});
     if (!taskRef) return;
+
+    const prefs = await apiman.rest(`${APP_CONSTANTS.API_PATH}/${API_CLOCK}`, "GET",
+        {op: "preferences", ..._me()}, true).catch(_ => null);
+    if (prefs?.confirm_before_switch !== false) {
+        const confirmed = await states.confirmAction({title: `Switch the clock to ${taskRef}?`, confirmLabel: "Switch"});
+        if (!confirmed) return;
+    }
+
     const switched = await apiman.rest(`${APP_CONSTANTS.API_PATH}/${API_CLOCK}`, "GET",
         {op: "switch", task_ref: taskRef, ..._me()}, true);
     if (!switched?.result) {states.toast({message: switched?.reason || "Could not switch the clock."}); return;}

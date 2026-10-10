@@ -110,6 +110,37 @@ exports.getPersonByEmailAsync = async function(email, exec) {
     return rows.length ? rows[0] : null;
 }
 
+/**
+ * I1's "Profile" panel — the one self-service edit a person has over their own
+ * record. Email stays IdP-managed; home_timezone is the one attribute
+ * identity.js's own provisioning note already says "the person can override,
+ * the IdP can't" — this is that override, finally built.
+ * @param {string} person_id The person
+ * @param {object} changes {display_name, home_timezone}
+ * @returns The updated person
+ * @throws If display_name is empty, or home_timezone is not a real IANA zone
+ */
+exports.updateOwnProfileAsync = async function(person_id, changes) {
+    const person = await exports.getPersonAsync(person_id);
+    if (!person) throw new Error(`No person ${person_id}.`);
+
+    const display_name = changes.display_name !== undefined ? changes.display_name?.trim() : person.display_name;
+    if (!display_name) throw new Error("display_name cannot be empty.");
+
+    let home_timezone = person.home_timezone;
+    if (changes.home_timezone !== undefined) {
+        home_timezone = changes.home_timezone?.trim();
+        if (home_timezone) {
+            try {new Intl.DateTimeFormat("en-US", {timeZone: home_timezone}).format(0);}
+            catch (err) {throw new Error(`${home_timezone} is not an IANA timezone.`);}
+        } else home_timezone = null;
+    }
+
+    await dblayer.runCmdOrThrow("UPDATE person SET display_name=?, home_timezone=? WHERE person_id=?",
+        [display_name, home_timezone, person_id]);
+    return {...person, display_name, home_timezone};
+}
+
 // ---------------------------------------------------------------------------
 // employment — effective-dated
 // ---------------------------------------------------------------------------

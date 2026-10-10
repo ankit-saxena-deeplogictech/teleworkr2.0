@@ -157,7 +157,12 @@ const SURFACES = Object.freeze({
     // for their sections — TABS is a frozen 5-slot header (day/tasks/
     // calendar/timeline/team), so this cannot be a bare tab.
     wiki: {console: "Wiki", label: "Wiki", screen: "N1", order: 170, classification: CLASS.SHARED,
-        capability: "wiki.read"}
+        capability: "wiki.read"},
+
+    // Settings (I1): notification volume, profile, and the one real Clock &
+    // timer preference — all the caller's own, so no capability, same as
+    // E4/E5's own "your own stuff needs no capability" reasoning.
+    settings: {console: "Me", label: "Settings", screen: "I1", order: 82, classification: CLASS.SHARED}
 });
 
 /**
