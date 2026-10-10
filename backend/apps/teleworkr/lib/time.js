@@ -32,8 +32,10 @@ const permissions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/permissions.js`);
 const audit = require(`${TELEWORKR_CONSTANTS.LIBDIR}/audit.js`);
 const spine = require(`${TELEWORKR_CONSTANTS.LIBDIR}/spine.js`);
 const events = require(`${TELEWORKR_CONSTANTS.LIBDIR}/events.js`);
+const notifications = require(`${TELEWORKR_CONSTANTS.LIBDIR}/notifications.js`);
 
 const SOURCES = Object.freeze(["timer", "manual", "reconstructed", "calendar"]);
+const TIMESHEET_ESCALATION_DAYS = 3;   // approval_sla: no existing timesheet-side SLA concept — a stated new default, matching leave's own DEFAULT_ESCALATION_DAYS
 const STATUS = Object.freeze({OPEN: "open", SUBMITTED: "submitted", RETURNED: "returned",
     APPROVED: "approved", LOCKED: "locked"});
 const DAY_SECONDS = 86400;
@@ -466,6 +468,21 @@ exports.pendingApprovalsForAsync = async function(org_id, actor_person_id, asOf)
             queue.push({person_id: report.person_id, timesheet_id: sheet.timesheet_id,
                 week_start: sheet.week_start, week_end: sheet.week_end, submitted_at: sheet.submitted_at,
                 total_seconds: totals.total_seconds, reconstructed_count: totals.reconstructed_count});
+
+            // approval_sla: no scheduler exists anywhere in this backend, so this
+            // is computed lazily, the moment the approver's own queue happens to
+            // load. No existing timesheet-side SLA concept to reuse (unlike
+            // leave's own escalation_after_days) — a stated new default, deduped
+            // to once a day per timesheet.
+            const waitingDays = Math.floor((_now() - sheet.submitted_at)/86400);
+            if (waitingDays >= TIMESHEET_ESCALATION_DAYS && !(await notifications.alreadyRaisedRecentlyAsync(
+                    org_id, actor_person_id, "approval_sla", sheet.timesheet_id, 86400)))
+                try {
+                    await notifications.notifyAsync({org_id, category: "approval_sla",
+                        recipient_person_id: actor_person_id,
+                        payload: {week_start: sheet.week_start, waiting_days: waitingDays},
+                        object_ref: sheet.timesheet_id});
+                } catch (err) {LOG.error(`Could not raise approval_sla for ${sheet.timesheet_id}: ${err}`);}
         }
     }
     return queue;

@@ -11,6 +11,7 @@
 
 const login = require(`${TELEWORKR_CONSTANTS.APIDIR}/login.js`);
 const identity = require(`${TELEWORKR_CONSTANTS.LIBDIR}/identity.js`);
+const notifications = require(`${TELEWORKR_CONSTANTS.LIBDIR}/notifications.js`);
 
 exports.initSync = _ => login.addLoginListener(`${TELEWORKR_CONSTANTS.LIBDIR}/loginhandler.js`, "employmentInjector");
 
@@ -41,7 +42,17 @@ exports.employmentInjector = async function(result) {
     }
 
     if (provisioned) try {
-        await identity.syncEmploymentFromAssertionAsync((result.org||"").toLowerCase(), result.person_id, assertionSnapshot);
+        const synced = await identity.syncEmploymentFromAssertionAsync(
+            (result.org||"").toLowerCase(), result.person_id, assertionSnapshot);
+        // account_deprovisioned: the only place an employment status ever
+        // transitions to 'ended' in this backend is right here, during the
+        // deprovisioned person's own next sign-in (a mover-sync drift check) —
+        // no admin-triggered terminate path exists anywhere else. A notification
+        // failure shouldn't fail the sign-in any more than a mover-sync one does.
+        if (synced?.status == "ended") try {
+            await notifications.notifyAsync({org_id: (result.org||"").toLowerCase(), category: "account_deprovisioned",
+                recipient_person_id: result.person_id, payload: {}, object_ref: synced.employment_id});
+        } catch (err) {LOG.error(`Could not raise account_deprovisioned for ${result.id}: ${err}`);}
     } catch (err) {
         LOG.error(`Mover sync failed for ${result.id} in ${result.org}: ${err}`);
     }

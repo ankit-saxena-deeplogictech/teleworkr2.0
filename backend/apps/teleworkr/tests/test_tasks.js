@@ -47,6 +47,7 @@ exports.runTestsAsync = async function(argv) {
         await _testAssignAndDelete(w);
         await _testTimeLog(w);
         await _testAPI(w);
+        await _testNotificationWiring(w);
     } catch (err) {
         failed++; LOG.console(`  FAIL  tasks tests threw: ${err}\n`); LOG.error(`Tasks tests threw: ${err.stack}`);
     } finally {
@@ -290,6 +291,73 @@ async function _testAPI(w) {
     _check("an unknown actor is refused", unknown.result === false && /No person/.test(unknown.reason||""));
 }
 
+async function _testNotificationWiring(w) {
+    LOG.console("\n notifications — task_assigned, became_blocker, comment_mention\n");
+
+    const assignedTask = await tasks.createTaskAsync({org_id: w.org_id, actor_person_id: w.alice,
+        title: "Notify me", assignee_person_id: w.bob});
+    const selfTask = await tasks.createTaskAsync({org_id: w.org_id, actor_person_id: w.alice,
+        title: "No notify, self-assigned"});
+    const assignedNotif = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='task_assigned' AND recipient_person_id=? AND object_ref=?",
+        [w.org_id, w.bob, assignedTask.task_id]);
+    _check("creating a task with an explicit assignee raises task_assigned", assignedNotif.length == 1, JSON.stringify(assignedNotif));
+    const selfNotif = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='task_assigned' AND object_ref=?",
+        [w.org_id, selfTask.task_id]);
+    _check("creating a task with no assignee (self-assigned) does not notify", selfNotif.length == 0);
+
+    const subtask = await tasks.addSubtaskAsync({org_id: w.org_id, actor_person_id: w.alice,
+        parent_task_ref: assignedTask.task_ref, title: "Sub, assigned to carol", assignee_person_id: w.carol});
+    const subtaskNotif = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='task_assigned' AND recipient_person_id=? AND object_ref=?",
+        [w.org_id, w.carol, subtask.child.task_id]);
+    _check("an assigned subtask raises task_assigned", subtaskNotif.length == 1);
+
+    await tasks.assignTaskAsync({org_id: w.org_id, actor_person_id: w.alice,
+        task_ref: selfTask.task_ref, assignee_person_id: w.bob});
+    const reassignNotif = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='task_assigned' AND recipient_person_id=? AND object_ref=?",
+        [w.org_id, w.bob, selfTask.task_id]);
+    _check("reassigning to someone new raises task_assigned", reassignNotif.length == 1);
+
+    await tasks.assignTaskAsync({org_id: w.org_id, actor_person_id: w.alice,
+        task_ref: selfTask.task_ref, assignee_person_id: w.bob});
+    const reassignSameNotif = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='task_assigned' AND recipient_person_id=? AND object_ref=?",
+        [w.org_id, w.bob, selfTask.task_id]);
+    _check("reassigning to the same person again does not raise a second notification", reassignSameNotif.length == 1);
+
+    await tasks.assignTaskAsync({org_id: w.org_id, actor_person_id: w.bob,
+        task_ref: selfTask.task_ref, assignee_person_id: w.bob});
+    const selfReassignNotif = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='task_assigned' AND recipient_person_id=? AND object_ref=?",
+        [w.org_id, w.bob, selfTask.task_id]);
+    _check("self-reassigning never notifies", selfReassignNotif.length == 1);
+
+    const blockerTask = await tasks.createTaskAsync({org_id: w.org_id, actor_person_id: w.alice,
+        title: "Blocker task", assignee_person_id: w.dave});
+    const blockedTask = await tasks.createTaskAsync({org_id: w.org_id, actor_person_id: w.alice,
+        title: "Blocked task", assignee_person_id: w.carol});
+    await tasks.addBlockAsync({org_id: w.org_id, actor_person_id: w.alice,
+        blocker_task_ref: blockerTask.task_ref, blocked_task_ref: blockedTask.task_ref, reason: "waiting"});
+    const becameBlockerNotif = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='became_blocker' AND recipient_person_id=? AND object_ref=?",
+        [w.org_id, w.dave, blockerTask.task_id]);
+    _check("blocking another task notifies the blocker task's assignee", becameBlockerNotif.length == 1);
+
+    await tasks.addWatcherAsync({org_id: w.org_id, actor_person_id: w.carol, task_ref: blockerTask.task_ref});
+    await tasks.addCommentAsync({org_id: w.org_id, actor_person_id: w.alice,
+        task_ref: blockerTask.task_ref, body: "status update"});
+    const commentNotifs = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='comment_mention' AND object_ref=?",
+        [w.org_id, blockerTask.task_id]);
+    const recipients = commentNotifs.map(n => n.recipient_person_id).sort();
+    _check("commenting notifies the watcher and the task's assignee, never the commenter",
+        recipients.length == 2 && recipients.includes(w.carol) && recipients.includes(w.dave) && !recipients.includes(w.alice),
+        JSON.stringify(recipients));
+}
+
 // ---------------------------------------------------------------------------
 // world and cleanup
 // ---------------------------------------------------------------------------
@@ -318,7 +386,7 @@ async function _buildWorld() {
 
 async function _cleanup(w) {
     if (!w?.org_id) return;
-    for (const table of ["task_relation", "task_watcher", "task_comment", "task_event", "task"])
+    for (const table of ["task_relation", "task_watcher", "task_comment", "task_event", "task", "notification"])
         await dblayer.runCmdBestEffortAsync(`DELETE FROM ${table} WHERE org_id=?`, [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM time_entry_event WHERE org_id=?", [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM audit_event WHERE org_id=?", [w.org_id]);

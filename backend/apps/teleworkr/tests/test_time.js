@@ -335,6 +335,28 @@ async function _testApprovalQueue(w) {
     await _checkThrows("an actor with no timesheet.approve grant is refused the queue outright", _ =>
         time.pendingApprovalsForAsync(w.org_id, w.erin));
 
+    // approval_sla — frank's week is freshly submitted, not yet overdue
+    const frankSheet = (await dblayer.getQueryOrThrow(
+        "SELECT * FROM timesheet WHERE org_id=? AND person_id=? AND week_start=?", [w.org_id, frank.person_id, Q1]))[0];
+    const tooSoon = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='approval_sla' AND object_ref=?",
+        [w.org_id, frankSheet.timesheet_id]);
+    _check("a freshly-submitted timesheet does not raise approval_sla yet", tooSoon.length == 0, JSON.stringify(tooSoon));
+
+    await dblayer.runCmdOrThrow("UPDATE timesheet SET submitted_at=? WHERE timesheet_id=?",
+        [Math.floor(Date.now()/1000) - 4*86400, frankSheet.timesheet_id]);
+    await time.pendingApprovalsForAsync(w.org_id, w.bob);
+    const afterOverdue = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='approval_sla' AND recipient_person_id=? AND object_ref=?",
+        [w.org_id, w.bob, frankSheet.timesheet_id]);
+    _check("an approver loading their queue with a timesheet past the 3-day default raises approval_sla",
+        afterOverdue.length == 1, JSON.stringify(afterOverdue));
+    await time.pendingApprovalsForAsync(w.org_id, w.bob);
+    const stillOne = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='approval_sla' AND recipient_person_id=? AND object_ref=?",
+        [w.org_id, w.bob, frankSheet.timesheet_id]);
+    _check("loading the queue again within the dedup window does not raise a duplicate", stillOne.length == 1);
+
     await time.approveTimesheetAsync({org_id: w.org_id, actor_person_id: w.bob,
         subject_person_id: w.alice, week_start: Q1});
     const afterApproval = await time.pendingApprovalsForAsync(w.org_id, w.bob);

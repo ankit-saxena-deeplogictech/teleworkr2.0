@@ -16,6 +16,7 @@ const dblayer = require(`${TELEWORKR_CONSTANTS.LIBDIR}/dblayer.js`);
 const permissions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/permissions.js`);
 const audit = require(`${TELEWORKR_CONSTANTS.LIBDIR}/audit.js`);
 const sessions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/sessions.js`);
+const notifications = require(`${TELEWORKR_CONSTANTS.LIBDIR}/notifications.js`);
 
 const _uuid = _ => serverutils.generateUUID(false);
 const _now = _ => Math.floor(Date.now()/1000);
@@ -113,7 +114,9 @@ exports.assessAsync = async function(request) {
 
 /**
  * The Notify phase — records the drafted message and the named affected
- * people. No dispatch: no email infrastructure exists anywhere in this app.
+ * people, and raises the real A9 security_incident category to each so it
+ * actually reaches their bell feed (the compliance record above is a draft
+ * an admin wrote; this is the one real dispatch mechanism this app has).
  * @param {object} request {org_id, actor_person_id, incident_id, person_ids, message}
  */
 exports.notifyAsync = async function(request) {
@@ -125,6 +128,13 @@ exports.notifyAsync = async function(request) {
 
     await dblayer.runInTransactionAsync(async exec => _addActionViaAsync(exec, request.org_id, request.incident_id,
         request.actor_person_id, "notify", {person_ids: request.person_ids, message: request.message.trim()}));
+
+    for (const person_id of request.person_ids) try {
+        await notifications.notifyAsync({org_id: request.org_id, category: "security_incident",
+            recipient_person_id: person_id, actor_person_id: request.actor_person_id,
+            payload: {message: request.message.trim(), incident_title: incident.title}, object_ref: request.incident_id});
+    } catch (err) {LOG.error(`Could not raise security_incident for ${person_id}: ${err}`);}
+
     return "recorded";
 }
 

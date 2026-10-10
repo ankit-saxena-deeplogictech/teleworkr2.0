@@ -34,6 +34,7 @@ exports.runTestsAsync = async function(argv) {
         w = await _buildWorld();
         _testCatalogueShape();
         await _testFeedAndRead(w);
+        await _testDedup(w);
         await _testAPI(w);
     } catch (err) {
         failed++; LOG.console(`  FAIL  notifications tests threw: ${err}\n`); LOG.error(`Notifications tests threw: ${err.stack}`);
@@ -121,6 +122,34 @@ async function _testFeedAndRead(w) {
 
     _check("a stranger's feed is empty, not an error",
         (await notifications.feedAsync(w.org_id, w.bob)).notifications.length == 0);
+}
+
+// ---------------------------------------------------------------------------
+// the lazy-check dedup helper (page_past_review, approval_sla)
+// ---------------------------------------------------------------------------
+
+async function _testDedup(w) {
+    LOG.console("\n alreadyRaisedRecentlyAsync — the dedup check lazy, read-time categories use\n");
+    const objectRef = `dedup-${w.stamp}`;
+
+    _check("nothing raised yet is not already-raised",
+        !(await notifications.alreadyRaisedRecentlyAsync(w.org_id, w.alice, "page_past_review", objectRef, 7*86400)));
+
+    await notifications.notifyAsync({org_id: w.org_id, category: "page_past_review",
+        recipient_person_id: w.alice, payload: {}, object_ref: objectRef});
+    _check("raising it once makes it already-raised within the window",
+        await notifications.alreadyRaisedRecentlyAsync(w.org_id, w.alice, "page_past_review", objectRef, 7*86400));
+    _check("a different object_ref is unaffected",
+        !(await notifications.alreadyRaisedRecentlyAsync(w.org_id, w.alice, "page_past_review", `other-${w.stamp}`, 7*86400)));
+    _check("a different category for the same object_ref is unaffected",
+        !(await notifications.alreadyRaisedRecentlyAsync(w.org_id, w.alice, "approval_sla", objectRef, 7*86400)));
+
+    // outside the window: backdate the row directly rather than waiting real time
+    await dblayer.runCmdOrThrow(
+        "UPDATE notification SET raised_at=? WHERE org_id=? AND recipient_person_id=? AND category=? AND object_ref=?",
+        [Math.floor(Date.now()/1000) - 8*86400, w.org_id, w.alice, "page_past_review", objectRef]);
+    _check("a row older than the window no longer counts as already-raised",
+        !(await notifications.alreadyRaisedRecentlyAsync(w.org_id, w.alice, "page_past_review", objectRef, 7*86400)));
 }
 
 // ---------------------------------------------------------------------------

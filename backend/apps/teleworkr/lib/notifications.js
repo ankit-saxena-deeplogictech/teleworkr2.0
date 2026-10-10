@@ -95,6 +95,26 @@ exports.notifyAsync = async function(request) {
         within_window: windowCheck.within, window_reason: windowCheck.reason};
 }
 
+/**
+ * Whether this exact (org, recipient, category, object) has already been
+ * raised within the window — for the categories that can't fire on a timer
+ * (no scheduler exists anywhere in this backend) and are instead computed
+ * lazily at read time, so the same thing doesn't re-raise on every read.
+ * @param {string} org_id The org
+ * @param {string} recipient_person_id The recipient
+ * @param {string} category A catalogue category
+ * @param {string} object_ref The thing this is about
+ * @param {number} withinSeconds The lookback window
+ * @returns {boolean} true if an entry already exists in that window
+ */
+exports.alreadyRaisedRecentlyAsync = async function(org_id, recipient_person_id, category, object_ref, withinSeconds) {
+    const rows = await dblayer.getQueryOrThrow(
+        `SELECT 1 FROM notification WHERE org_id=? AND recipient_person_id=? AND category=? AND object_ref=?
+            AND raised_at > ? LIMIT 1`,
+        [org_id, recipient_person_id, category, object_ref, _now() - withinSeconds]);
+    return rows.length > 0;
+}
+
 async function _insertAsync(request, status) {
     const row = {notification_id: serverutils.generateUUID(false), org_id: request.org_id,
         recipient_person_id: request.recipient_person_id, category: request.category, status,

@@ -128,10 +128,6 @@ async function _testBrief(w) {
     await tasks.updateTaskAsync({org_id: w.org_id, actor_person_id: w.bob,
         task_ref: t3.task_ref, changes: {due_date: _yesterday()}});
 
-    await notifications.notifyAsync({org_id: w.org_id, category: "task_assigned",
-        recipient_person_id: w.alice, actor_person_id: w.bob,
-        object_ref: t3.task_ref, payload: {task_ref: t3.task_ref}});
-
     const morning = await brief.briefAsync({org_id: w.org_id, person_id: w.alice});
     const buckets = morning.items.reduce((map, item) => {
         map[item.bucket] = (map[item.bucket] || 0) + 1; return map;}, {});
@@ -152,8 +148,16 @@ async function _testBrief(w) {
         /Unblock/.test(morning.suggested_order[0].action),
         JSON.stringify(morning.suggested_order));
     _check("a normal morning is named normal", morning.state == "normal");
+    // task_assigned now fires for real on both t1 and t3 (dave assigned each to
+    // alice, A10-era notification wiring) and comment_mention fires for real on
+    // bob's comment on t1 (alice is t1's assignee, not the commenter) — this
+    // app's own task/comment actions feed the brief bucket now, nothing
+    // manufactured here just to exercise it.
     _check("the brief bucket from A9 feeds the same screen",
-        morning.notifications.length == 1 && morning.notifications[0].category == "task_assigned");
+        morning.notifications.length == 3 &&
+        morning.notifications.filter(n => n.category == "task_assigned").length == 2 &&
+        morning.notifications.some(n => n.category == "comment_mention"),
+        JSON.stringify(morning.notifications));
 
     await notifications.ackBriefAsync(w.org_id, w.alice);
     _check("showing the brief drains its bucket",

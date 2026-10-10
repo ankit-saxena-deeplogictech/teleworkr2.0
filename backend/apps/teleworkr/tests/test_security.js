@@ -195,6 +195,12 @@ async function _testIncidentLifecycle(w) {
         incidents.notifyAsync({org_id: w.org_id, actor_person_id: w.carol, incident_id: w.incidentId, person_ids: [w.bob], message: ""}));
     await incidents.notifyAsync({org_id: w.org_id, actor_person_id: w.carol, incident_id: w.incidentId,
         person_ids: [w.alice, w.bob], message: "We detected unusual sign-in activity on your account."});
+    const incidentNotifs = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='security_incident' AND object_ref=?",
+        [w.org_id, w.incidentId]);
+    _check("notifying raises the real security_incident category to each named person",
+        incidentNotifs.map(n => n.recipient_person_id).sort().join(",") == [w.alice, w.bob].sort().join(","),
+        JSON.stringify(incidentNotifs.map(n => n.recipient_person_id)));
     await incidents.addNoteAsync({org_id: w.org_id, actor_person_id: w.carol, incident_id: w.incidentId,
         text: "Confirmed with bob this was a legitimate new laptop."});
 
@@ -279,7 +285,7 @@ async function _buildWorld() {
 async function _cleanup(w) {
     if (!w?.org_id) return;
     for (const table of ["audit_event", "session", "security_incident_action", "security_incident",
-        "capability_grant", "role_capability", "role", "employment", "working_window"])
+        "capability_grant", "role_capability", "role", "employment", "working_window", "notification"])
         await dblayer.runCmdBestEffortAsync(`DELETE FROM ${table} WHERE org_id=?`, [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM org WHERE org_id=?", [w.org_id]);
     for (const who of ["alice", "bob", "carol"])

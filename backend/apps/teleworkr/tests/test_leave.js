@@ -91,6 +91,7 @@ exports.runTestsAsync = async function(argv) {
         w = await _buildWorld();
         await _testPublish(w);
         await _testBalance(w);
+        await _testApprovalSLA();
         await _testEvaluate(w);
         await _testRequests(w);
         await _testAPI(w);
@@ -225,6 +226,80 @@ async function _testBalance(w) {
 
     _check("the ledger has no in-place update path",
         (_ => {try {entityshapes.assertUpdatable("leave_ledger_entry"); return false;} catch (err) {return true;}})());
+}
+
+/** A self-contained world, same shape as _testDecisionNotification below — the
+ *  shared world w has no manager_person_id on anyone, so nobody could ever
+ *  pass the "manager" approval step at all. */
+async function _testApprovalSLA() {
+    LOG.console("\n approval_sla — past the default escalation window, deduped\n");
+    const stamp = Date.now();
+    const org = await spine.createOrgAsync({name: `Approval SLA test ${stamp}`, home_jurisdiction: "IN"});
+    const alice = await spine.createPersonAsync({display_name: "alice", email: `alice-sla.${stamp}@example.invalid`});
+    const bob = await spine.createPersonAsync({display_name: "bob", email: `bob-sla.${stamp}@example.invalid`});
+    const carol = await spine.createPersonAsync({display_name: "carol", email: `carol-sla.${stamp}@example.invalid`});
+    const dave = await spine.createPersonAsync({display_name: "dave", email: `dave-sla.${stamp}@example.invalid`});
+
+    await spine.recordEmploymentAsync({org_id: org.org_id, person_id: alice.person_id, status: "active",
+        jurisdiction: "IN", manager_person_id: bob.person_id, contract_type: "employee",
+        valid_from: "2026-01-01", source: "manual"});
+    await spine.recordEmploymentAsync({org_id: org.org_id, person_id: bob.person_id, status: "active",
+        jurisdiction: "IN", contract_type: "employee", valid_from: "2026-01-01", source: "manual"});
+    await spine.recordEmploymentAsync({org_id: org.org_id, person_id: carol.person_id, status: "active",
+        jurisdiction: "IN", contract_type: "employee", valid_from: "2026-01-01", source: "manual"});
+    await spine.recordEmploymentAsync({org_id: org.org_id, person_id: dave.person_id, status: "active",
+        jurisdiction: "IN", contract_type: "employee", valid_from: "2026-01-01", source: "manual"});
+
+    await permissions.ensureBuiltinRolesAsync(org.org_id);
+    const grantedFrom = {granted_by: "system", valid_from: "2026-01-01"};
+    await permissions.assignRoleAsync(org.org_id, alice.person_id, "employee", grantedFrom);
+    await permissions.assignRoleAsync(org.org_id, bob.person_id, "lead", grantedFrom);
+    await permissions.assignRoleAsync(org.org_id, carol.person_id, "hr", grantedFrom);
+    await permissions.assignRoleAsync(org.org_id, dave.person_id, "admin", grantedFrom);
+
+    await leave.publishPolicyAsync({org_id: org.org_id, actor_person_id: carol.person_id,
+        step_up_verified: true, effective_from: "2026-01-01", resolutions: {},
+        policy: {scope: {jurisdiction: "IN", contract_type: "employee", status: ["active"]},
+            leave_types: [{code: "EL", label: "Earned leave", quantum: {annual_days: 12},
+                accrual: {per_month: 1}, eligibility: {states: ["active"]},
+                notice: {multiplier: 0, floor_days: 0, short_notice_approvable: true},
+                max_per_request: 6, approval_route: ["manager"]}]}});
+    await setup.importBalancesAsync({org_id: org.org_id, actor_person_id: dave.person_id,
+        rows: [{email: `alice-sla.${stamp}@example.invalid`, leave_type: "EL", days: 10}],
+        source: "spreadsheet", cutover_date: "2026-01-01", commit: true});
+
+    const requested = await leave.requestLeaveAsync({org_id: org.org_id, person_id: alice.person_id,
+        leave_type: "EL", from_date: "2026-12-10", to_date: "2026-12-10", notice_days: 60});
+
+    await leave.pendingApprovalsForAsync({org_id: org.org_id, actor_person_id: bob.person_id});
+    const tooSoon = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='approval_sla' AND object_ref=?",
+        [org.org_id, requested.request.leave_request_id]);
+    _check("a freshly-submitted request does not raise approval_sla yet", tooSoon.length == 0, JSON.stringify(tooSoon));
+
+    // backdate submitted_at past the 3-day default so the next queue load sees it as overdue
+    await dblayer.runCmdOrThrow("UPDATE leave_request SET submitted_at=? WHERE leave_request_id=?",
+        [Math.floor(Date.now()/1000) - 4*86400, requested.request.leave_request_id]);
+
+    await leave.pendingApprovalsForAsync({org_id: org.org_id, actor_person_id: bob.person_id});
+    const afterOverdue = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='approval_sla' AND recipient_person_id=? AND object_ref=?",
+        [org.org_id, bob.person_id, requested.request.leave_request_id]);
+    _check("an approver loading their queue with a request past the default 3-day window raises approval_sla",
+        afterOverdue.length == 1, JSON.stringify(afterOverdue));
+
+    await leave.pendingApprovalsForAsync({org_id: org.org_id, actor_person_id: bob.person_id});
+    const stillOne = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='approval_sla' AND recipient_person_id=? AND object_ref=?",
+        [org.org_id, bob.person_id, requested.request.leave_request_id]);
+    _check("loading the queue again within the dedup window does not raise a duplicate", stillOne.length == 1);
+
+    for (const table of ["leave_ledger_entry", "leave_request", "leave_policy_pointer", "leave_policy_version",
+        "notification", "role_capability", "role", "capability_grant", "employment"])
+        await dblayer.runCmdBestEffortAsync(`DELETE FROM ${table} WHERE org_id=?`, [org.org_id]);
+    await dblayer.runCmdBestEffortAsync("DELETE FROM org WHERE org_id=?", [org.org_id]);
+    for (const person of [alice, bob, carol, dave])
+        await dblayer.runCmdBestEffortAsync("DELETE FROM person WHERE person_id=?", [person.person_id]);
 }
 
 async function _testEvaluate(w) {

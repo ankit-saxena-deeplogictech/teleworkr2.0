@@ -457,6 +457,30 @@ async function _testMoverSyncWiredToLogin(w) {
         history.length == 2 && history[1].status == "probation", JSON.stringify(history));
     _check("the earlier period is still answerable for its own dates",
         (await spine.employmentAsOfAsync(w.org_id, person.person_id, "2026-03-01"))?.status == "active");
+
+    const noneYet = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='account_deprovisioned' AND recipient_person_id=?",
+        [w.org_id, person.person_id]);
+    _check("a status change to probation never raises account_deprovisioned", noneYet.length == 0);
+
+    // the one real path account_deprovisioned can fire from: the person's own
+    // next sign-in, when the assertion's status has actually moved to 'ended'
+    await loginhandler.employmentInjector({tokenflag: true, id: email, org: w.org_id, employment_status: "ended",
+        jurisdiction: "IN", start_date: "2026-09-01", contract_type: "employee"});
+    const deprovisioned = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='account_deprovisioned' AND recipient_person_id=?",
+        [w.org_id, person.person_id]);
+    _check("a sign-in whose assertion has moved to 'ended' raises account_deprovisioned",
+        deprovisioned.length == 1, JSON.stringify(deprovisioned));
+
+    // a second sign-in with the same already-ended status is a no-op sync
+    // (nothing changed), so it must not raise a second notification
+    await loginhandler.employmentInjector({tokenflag: true, id: email, org: w.org_id, employment_status: "ended",
+        jurisdiction: "IN", start_date: "2026-09-01", contract_type: "employee"});
+    const stillOne = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='account_deprovisioned' AND recipient_person_id=?",
+        [w.org_id, person.person_id]);
+    _check("a repeat sign-in with no real change does not raise a second one", stillOne.length == 1);
 }
 
 async function _testCapabilityRefusals(w) {
@@ -505,6 +529,7 @@ async function _testDegradedIdP(w) {
 async function _cleanup(org_id) {
     if (!org_id) return;
     await dblayer.runCmdBestEffortAsync("DELETE FROM audit_event WHERE org_id=?", [org_id]);
+    await dblayer.runCmdBestEffortAsync("DELETE FROM notification WHERE org_id=?", [org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM identity_mfa_policy WHERE org_id=?", [org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM role_capability WHERE org_id=?", [org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM role WHERE org_id=?", [org_id]);

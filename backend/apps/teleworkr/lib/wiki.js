@@ -349,6 +349,26 @@ exports.pageAsync = async function(org_id, actor_person_id, page_id) {
     if (!(await _canReadPageAsync(org_id, actor_person_id, page, space))) throw new Error(
         `This page is ${page.visibility || space.default_visibility}-visible and you are not covered by that.`);
 
+    // page_past_review: no scheduler exists anywhere in this backend, so this
+    // is computed lazily, the moment the owner happens to open their own page
+    // — not pushed on a timer. Deduped against a 7-day window matching the
+    // catalogue's own "weekly" timing, so re-opening the same page the same
+    // week doesn't re-raise it.
+    // review_cadence_months/last_reviewed_at are only ever populated by
+    // publishPageAsync, so their presence alone is proof this page has a
+    // live published version to go stale — status itself isn't a reliable
+    // signal here, since saving a new draft on top of a published page
+    // resets wiki_page.status back to 'draft' even while the pointer keeps
+    // serving the still-live published content underneath.
+    if (page.owner_person_id == actor_person_id && page.review_cadence_months &&
+            page.last_reviewed_at && (_now() - page.last_reviewed_at) > page.review_cadence_months*30*86400) {
+        if (!(await notifications.alreadyRaisedRecentlyAsync(org_id, actor_person_id, "page_past_review", page_id, 7*86400)))
+            try {
+                await notifications.notifyAsync({org_id, category: "page_past_review",
+                    recipient_person_id: actor_person_id, payload: {title: page.title}, object_ref: page_id});
+            } catch (err) {LOG.error(`Could not raise page_past_review for ${page_id}: ${err}`);}
+    }
+
     if (page.source_type == "leave_policy") return {page, space, sections: await _renderLeavePolicyAsync(org_id, page.source_ref),
         linked_page_ids: [], latest_version_id: null, latest_version_number: null};
 

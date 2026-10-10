@@ -24,6 +24,7 @@ const permissions = require(`${TELEWORKR_CONSTANTS.LIBDIR}/permissions.js`);
 const audit = require(`${TELEWORKR_CONSTANTS.LIBDIR}/audit.js`);
 const time = require(`${TELEWORKR_CONSTANTS.LIBDIR}/time.js`);
 const events = require(`${TELEWORKR_CONSTANTS.LIBDIR}/events.js`);
+const notifications = require(`${TELEWORKR_CONSTANTS.LIBDIR}/notifications.js`);
 
 const STATUS = Object.freeze({TO_DO: "to_do", IN_PROGRESS: "in_progress", IN_REVIEW: "in_review",
     DONE: "done", BLOCKED: "blocked"});
@@ -64,13 +65,21 @@ exports.createTaskAsync = async function(task) {
     const row = _prepareTask(task, {created_by: task.actor_person_id,
         assignee_person_id: task.assignee_person_id || task.actor_person_id});
 
-    return await dblayer.runInTransactionAsync(async exec => {
+    const result = await dblayer.runInTransactionAsync(async exec => {
         row.task_ref = await _nextTaskRefViaAsync(exec, row.org_id);
         await _insertTaskViaAsync(exec, row);
         await _appendEventViaAsync(exec, row.org_id, row.task_id, row.created_by,
             "task.created", {title: row.title, task_ref: row.task_ref});
         return row;
     });
+
+    if (result.assignee_person_id && result.assignee_person_id != result.created_by) try {
+        await notifications.notifyAsync({org_id: result.org_id, category: "task_assigned",
+            recipient_person_id: result.assignee_person_id, actor_person_id: result.created_by,
+            payload: {task_ref: result.task_ref}, object_ref: result.task_id});
+    } catch (err) {LOG.error(`Could not raise task_assigned for ${result.task_ref}: ${err}`);}
+
+    return result;
 }
 
 /**
@@ -80,7 +89,7 @@ exports.createTaskAsync = async function(task) {
  */
 exports.addSubtaskAsync = async function(request) {
     await _requireAsync(request.org_id, request.actor_person_id, "task.create");
-    return await dblayer.runInTransactionAsync(async exec => {
+    const result = await dblayer.runInTransactionAsync(async exec => {
         const parent = await _taskByRefViaAsync(exec, request.org_id, request.parent_task_ref);
         if (!parent) throw new Error(`Parent task ${request.parent_task_ref} was not found.`);
 
@@ -99,6 +108,14 @@ exports.addSubtaskAsync = async function(request) {
             "task.subtask_added", {subtask: child.task_ref});
         return {parent, child, relation};
     });
+
+    if (result.child.assignee_person_id && result.child.assignee_person_id != request.actor_person_id) try {
+        await notifications.notifyAsync({org_id: request.org_id, category: "task_assigned",
+            recipient_person_id: result.child.assignee_person_id, actor_person_id: request.actor_person_id,
+            payload: {task_ref: result.child.task_ref}, object_ref: result.child.task_id});
+    } catch (err) {LOG.error(`Could not raise task_assigned for ${result.child.task_ref}: ${err}`);}
+
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -307,7 +324,8 @@ exports.updateTaskAsync = async function(request) {
  * @param {object} request {org_id, actor_person_id, task_ref, assignee_person_id}
  */
 exports.assignTaskAsync = async function(request) {
-    return await audit.performAsync({
+    let previousAssignee = null, taskId = null;
+    const result = await audit.performAsync({
         org_id: request.org_id, actor_person_id: request.actor_person_id,
         capability: "task.assign",
         audit: {action: "task.assigned", object_type: "task", object_ref: request.task_ref,
@@ -315,12 +333,22 @@ exports.assignTaskAsync = async function(request) {
         action: async exec => {
             const task = await _taskByRefViaAsync(exec, request.org_id, request.task_ref);
             if (!task) throw new Error(`Task ${request.task_ref} was not found.`);
+            previousAssignee = task.assignee_person_id; taskId = task.task_id;
             await exec.runCmd("UPDATE task SET assignee_person_id=?, updated_at=? WHERE task_id=?",
                 [request.assignee_person_id, _now(), task.task_id]);
             await _appendEventViaAsync(exec, request.org_id, task.task_id, request.actor_person_id,
                 "task.assigned", {from: task.assignee_person_id, to: request.assignee_person_id});
             return "assigned";
         }});
+
+    if (request.assignee_person_id && request.assignee_person_id != previousAssignee &&
+        request.assignee_person_id != request.actor_person_id) try {
+        await notifications.notifyAsync({org_id: request.org_id, category: "task_assigned",
+            recipient_person_id: request.assignee_person_id, actor_person_id: request.actor_person_id,
+            payload: {task_ref: request.task_ref}, object_ref: taskId});
+    } catch (err) {LOG.error(`Could not raise task_assigned for ${request.task_ref}: ${err}`);}
+
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -338,7 +366,7 @@ exports.addBlockAsync = async function(request) {
     await _requireAsync(request.org_id, request.actor_person_id, "task.edit");
     if (!request.reason) throw new Error(
         "A block needs a reason. Blocked without a reason is just a colour (D1).");
-    let newlyBlockedTaskId = null;
+    let newlyBlockedTaskId = null, blockerAssigneeId = null, blockerTaskId = null;
     const relation = await dblayer.runInTransactionAsync(async exec => {
         const blocker = await _taskByRefViaAsync(exec, request.org_id, request.blocker_task_ref);
         const blocked = await _taskByRefViaAsync(exec, request.org_id, request.blocked_task_ref);
@@ -360,6 +388,7 @@ exports.addBlockAsync = async function(request) {
             await _appendEventViaAsync(exec, request.org_id, blocked.task_id, request.actor_person_id,
                 "task.status_changed", {from: blocked.status, to: STATUS.BLOCKED, reason: request.reason});
             newlyBlockedTaskId = blocked.task_id;
+            blockerAssigneeId = blocker.assignee_person_id; blockerTaskId = blocker.task_id;
         }
         return relation;
     });
@@ -367,6 +396,13 @@ exports.addBlockAsync = async function(request) {
     if (newlyBlockedTaskId) try {await events.emitAsync({org_id: request.org_id, action: "task.blocked",
         person_id: request.actor_person_id, source: "web", detail: {task_id: newlyBlockedTaskId}});}
     catch (err) {LOG.error(`Could not record a task.blocked event: ${err}`);}
+
+    if (newlyBlockedTaskId && blockerAssigneeId) try {
+        await notifications.notifyAsync({org_id: request.org_id, category: "became_blocker",
+            recipient_person_id: blockerAssigneeId, actor_person_id: request.actor_person_id,
+            payload: {blocker_task_ref: request.blocker_task_ref, blocked_task_ref: request.blocked_task_ref},
+            object_ref: blockerTaskId});
+    } catch (err) {LOG.error(`Could not raise became_blocker for ${request.blocker_task_ref}: ${err}`);}
 
     return relation;
 }
@@ -446,6 +482,17 @@ exports.addCommentAsync = async function(request) {
     await dblayer.runCmdOrThrow(
         `INSERT INTO task_comment (task_comment_id, org_id, task_id, person_id, body, created_at) VALUES (?,?,?,?,?,?)`,
         [row.task_comment_id, row.org_id, row.task_id, row.person_id, row.body, row.created_at]);
+
+    const watchers = await dblayer.getQueryOrThrow("SELECT person_id FROM task_watcher WHERE task_id=?", [task.task_id]);
+    const recipients = new Set(watchers.map(w => w.person_id));
+    if (task.assignee_person_id) recipients.add(task.assignee_person_id);
+    recipients.delete(request.actor_person_id);
+    for (const recipient_person_id of recipients) try {
+        await notifications.notifyAsync({org_id: request.org_id, category: "comment_mention",
+            recipient_person_id, actor_person_id: request.actor_person_id,
+            payload: {task_ref: task.task_ref}, object_ref: task.task_id});
+    } catch (err) {LOG.error(`Could not raise comment_mention for ${task.task_ref}: ${err}`);}
+
     return row;
 }
 

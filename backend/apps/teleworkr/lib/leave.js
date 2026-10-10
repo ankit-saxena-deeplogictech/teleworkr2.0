@@ -915,6 +915,23 @@ exports.pendingApprovalsForAsync = async function(request) {
             short_notice: evaluation.warnings.some(warning => warning.rule == "notice"),
             proof_provided: Boolean(fields.proof || fields.medical_certificate),
             reason: leaveRequest.reason, submitted_at: leaveRequest.submitted_at});
+
+        // approval_sla: no scheduler exists anywhere in this backend, so this is
+        // computed lazily, the moment the approver's own queue happens to load —
+        // reusing the same escalation-window concept escalationsDueAsync already
+        // has, not a new threshold. Deduped to once a day per request.
+        const waitingDays = Math.floor((_now() - leaveRequest.submitted_at)/86400);
+        const versionRows = await dblayer.getQueryOrThrow(
+            "SELECT * FROM leave_policy_version WHERE policy_version_id=?", [leaveRequest.policy_version_id]);
+        const windowDays = (versionRows[0] ? JSON.parse(versionRows[0].policy).escalation_after_days : null) || DEFAULT_ESCALATION_DAYS;
+        if (waitingDays >= windowDays && !(await notifications.alreadyRaisedRecentlyAsync(
+                request.org_id, request.actor_person_id, "approval_sla", leaveRequest.leave_request_id, 86400)))
+            try {
+                await notifications.notifyAsync({org_id: request.org_id, category: "approval_sla",
+                    recipient_person_id: request.actor_person_id,
+                    payload: {leave_type: leaveRequest.leave_type, waiting_days: waitingDays},
+                    object_ref: leaveRequest.leave_request_id});
+            } catch (err) {LOG.error(`Could not raise approval_sla for ${leaveRequest.leave_request_id}: ${err}`);}
     }
     return queue;
 }

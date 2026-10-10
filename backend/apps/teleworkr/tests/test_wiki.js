@@ -41,6 +41,7 @@ exports.runTestsAsync = async function(argv) {
         w = await _buildWorld();
         await _testPublishDiscipline(w);
         await _testFreshness(w);
+        await _testPageReviewNotification(w);
         await _testVisibilityCeiling(w);
         await _testPublicScan(w);
         await _testPublicApproval(w);
@@ -122,6 +123,30 @@ async function _testFreshness(w) {
         `${beforeVersionCount} -> ${afterVersionCount}`);
     await _checkThrows("only the page owner can mark it still correct",
         _ => wiki.markStillCorrectAsync({org_id: w.org_id, actor_person_id: w.dave, page_id: w.publishedPage.page_id}));
+}
+
+async function _testPageReviewNotification(w) {
+    LOG.console("\n page_past_review — lazy, read-time, owner-only, deduped\n");
+    await dblayer.runCmdOrThrow("UPDATE wiki_page SET last_reviewed_at=? WHERE org_id=? AND page_id=?",
+        [_now() - 200*86400, w.org_id, w.publishedPage.page_id]);
+
+    await wiki.pageAsync(w.org_id, w.carol, w.publishedPage.page_id);
+    const ownerNotif = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='page_past_review' AND recipient_person_id=? AND object_ref=?",
+        [w.org_id, w.carol, w.publishedPage.page_id]);
+    _check("the owner opening an overdue published page raises page_past_review", ownerNotif.length == 1, JSON.stringify(ownerNotif));
+
+    await wiki.pageAsync(w.org_id, w.dave, w.publishedPage.page_id);
+    const nonOwnerNotif = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='page_past_review' AND recipient_person_id=?",
+        [w.org_id, w.dave]);
+    _check("a non-owner reading the same page never raises it for themselves", nonOwnerNotif.length == 0);
+
+    await wiki.pageAsync(w.org_id, w.carol, w.publishedPage.page_id);
+    const secondRead = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='page_past_review' AND recipient_person_id=? AND object_ref=?",
+        [w.org_id, w.carol, w.publishedPage.page_id]);
+    _check("reading it again within the dedup window does not raise a duplicate", secondRead.length == 1);
 }
 
 async function _testVisibilityCeiling(w) {
@@ -310,7 +335,7 @@ async function _cleanup(w) {
     if (!w?.org_id) return;
     for (const table of ["wiki_acknowledgement", "wiki_page_task_link", "wiki_share_link", "wiki_public_request",
         "wiki_review", "wiki_page_version", "wiki_page_pointer", "wiki_page", "wiki_space_member", "wiki_space",
-        "leave_policy_version", "leave_policy_pointer", "audit_event"])
+        "leave_policy_version", "leave_policy_pointer", "audit_event", "notification"])
         await dblayer.runCmdBestEffortAsync(`DELETE FROM ${table} WHERE org_id=?`, [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM role_capability WHERE org_id=?", [w.org_id]);
     await dblayer.runCmdBestEffortAsync("DELETE FROM role WHERE org_id=?", [w.org_id]);
