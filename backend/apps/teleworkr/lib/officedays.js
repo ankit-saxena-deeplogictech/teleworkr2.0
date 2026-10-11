@@ -15,8 +15,10 @@
  * entirely)" isn't implementable either — there's no office registry to
  * check "does this org have one," so the screen is always reachable, same
  * as E4 itself. The co-location note states the opportunity only — no
- * "block an hour together," since no meeting/calendar-event entity exists
- * (the same confirmed gap E2/F1-F5 hit) — and is scoped to the visible
+ * "block an hour together" — this module still doesn't call into
+ * meetings.js (the minimal entity E2/F1-F5 build on, added after this
+ * file was written); wiring co-location into a real booking action is a
+ * deliberate follow-on, not silently added here. Scoped to the visible
  * week, not a month-long historical scan.
  *
  * (C) 2026 TekMonks. All rights reserved.

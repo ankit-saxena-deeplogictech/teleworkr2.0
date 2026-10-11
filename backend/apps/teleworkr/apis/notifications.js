@@ -10,12 +10,18 @@
  *  op - feed       - The actor's own bell feed (delivered/digest rows) and unread count
  *  op - mark_read  - Moves the actor's own read watermark forward
  *
+ * `feed` also triggers meetings.js's lazy meeting_starting check for the
+ * actor — the notification feed poll is the only ambient, screen-
+ * independent poll this app has, and meeting_starting needs to reach an
+ * owner who isn't necessarily looking at the calendar.
+ *
  * (C) 2026 TekMonks. All rights reserved.
  */
 
 const spine = require(`${TELEWORKR_CONSTANTS.LIBDIR}/spine.js`);
 const notifications = require(`${TELEWORKR_CONSTANTS.LIBDIR}/notifications.js`);
 const brief = require(`${TELEWORKR_CONSTANTS.LIBDIR}/brief.js`);
+const meetings = require(`${TELEWORKR_CONSTANTS.LIBDIR}/meetings.js`);
 
 exports.doService = async jsonReq => {
     if (!validateRequest(jsonReq)) {LOG.error("Validation failure."); return CONSTANTS.FALSE_RESULT;}
@@ -46,6 +52,8 @@ exports.doService = async jsonReq => {
                     ...await notifications.volumeStatsAsync(jsonReq.org)};
             }
             case "feed": {
+                try {await meetings.raiseStartingSoonNotificationsAsync(jsonReq.org, actor.person_id);}
+                catch (err) {LOG.error(`meeting_starting raise failed for ${actor.person_id}: ${err}`);}
                 return {...CONSTANTS.TRUE_RESULT,
                     ...await notifications.feedAsync(jsonReq.org, actor.person_id, {limit: jsonReq.limit})};
             }

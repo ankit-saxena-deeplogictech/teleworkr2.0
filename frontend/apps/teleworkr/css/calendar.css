@@ -21,3 +21,6 @@
     padding: 13px 15px; display: flex; flex-direction: column; gap: 6px; }
 .cal-note { color: var(--t3); font-size: 12.5px; border: 1px dashed var(--stroke-2);
     border-radius: var(--r-md); padding: 12px 14px; }
+.cal-meet-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 6px 0; border-bottom: 1px dashed var(--stroke-2); }
+.cal-meet-row:last-of-type { border-bottom: none; }
