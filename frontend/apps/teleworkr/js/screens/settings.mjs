@@ -17,9 +17,11 @@
  * transparency A10's event catalogue already established.
  *
  * Working hours / Privacy & your data / Connected apps are pure links to
- * screens that already exist (E4/H5/G1) — nothing rebuilt here. Language &
- * region / Accessibility are I2, a separate still-unbuilt module, named as
- * such rather than silently missing.
+ * screens that already exist (E4/H5/G1) — nothing rebuilt here. Accessibility
+ * (I2 slice 1) and Language & region preferences (I2 slice 2a) are both now
+ * built; applying those formats across every screen's own rendering, and RTL
+ * layout, are separate, larger, later pieces — named as such in their own
+ * tabs rather than silently implied as finished.
  *
  * (C) 2026 TekMonks. All rights reserved.
  * License: See the enclosed LICENSE file.
@@ -27,9 +29,13 @@
 
 import {apimanager as apiman} from "/framework/js/apimanager.mjs";
 import {session} from "/framework/js/session.mjs";
+import {i18n} from "/framework/js/i18n.mjs";
+import {language} from "../language.mjs";
 import {states} from "../states.mjs";
 
 const API_NOTIF = "notifications", API_CLOCK = "clock", API_SETTINGS = "settings";
+const LOCALE_KEY = "__teleworkr_locale_prefs";   // I2 slice 2a — client-local, same shape as A11Y_KEY; language itself stays in i18n's own session key, not duplicated here
+const LANGUAGES = {en: "English", hi: "हिंदी", ja: "日本語"};   // the only 3 bundles that actually exist — i18n/i18n_en|hi|ja.mjs
 
 const _me = _ => ({id: session.get(APP_CONSTANTS.USERID)?.toString(),
     org: session.get(APP_CONSTANTS.USERORG)?.toString()});
@@ -67,6 +73,7 @@ async function _view() {
             <button class="tr-tab${state.tab=="profile"?" on":""}" data-st="tab" data-tab="profile">Profile</button>
             <button class="tr-tab${state.tab=="clock"?" on":""}" data-st="tab" data-tab="clock">Clock &amp; timer</button>
             <button class="tr-tab${state.tab=="accessibility"?" on":""}" data-st="tab" data-tab="accessibility">Accessibility</button>
+            <button class="tr-tab${state.tab=="locale"?" on":""}" data-st="tab" data-tab="locale">Language &amp; region</button>
             <button class="tr-tab${state.tab=="more"?" on":""}" data-st="tab" data-tab="more">More</button>
         </div>
         <div class="tr-view" id="st-view"></div>
@@ -80,6 +87,7 @@ async function _view() {
         else if (state.tab == "profile") _profile(view);
         else if (state.tab == "clock") await _clockPrefs(view);
         else if (state.tab == "accessibility") await _accessibility(view);
+        else if (state.tab == "locale") _locale(view);
         else _more(view);
     } catch (err) {
         view.innerHTML = states.error({title: "Couldn't load settings", what: err.message,
@@ -217,6 +225,90 @@ async function _accessibility(root) {
 }
 
 // ---------------------------------------------------------------------------
+// Language & region (I2 slice 2a) — language is real (the framework's own
+// i18n, already wired on login.html, just never reachable once signed in);
+// the rest are new, client-local preferences with no rendering consumer yet.
+// ---------------------------------------------------------------------------
+
+function _localePrefs() {
+    try {return {region: "IN", date_format: "DD/MM/YYYY", time_format: "24h", week_start: "monday",
+        number_format: "indian", duration_format: "hm", ...JSON.parse(session.get(LOCALE_KEY)||"{}")};}
+    catch (err) {return {region: "IN", date_format: "DD/MM/YYYY", time_format: "24h", week_start: "monday",
+        number_format: "indian", duration_format: "hm"};}
+}
+
+function _setLocalePrefs(partial) {
+    const merged = {..._localePrefs(), ...partial};
+    session.set(LOCALE_KEY, JSON.stringify(merged));
+    return merged;
+}
+
+function _locale(root) {
+    const prefs = _localePrefs();
+    const lang = i18n.getSessionLang();
+    const opt = (value, label, current) => `<option value="${states.esc(value)}"${value==current?" selected":""}>${states.esc(label)}</option>`;
+
+    root.innerHTML = `<div class="tr-card">
+        <div class="up t3">Language &amp; region</div>
+        <div class="tr-track-row"><span class="grow sm">Language</span>
+            <select class="inp" id="st-lang" style="width:140px">
+                ${Object.entries(LANGUAGES).map(([code, label]) => opt(code, label, lang)).join("")}
+            </select></div>
+        <div class="tr-track-row"><span class="grow sm">Region format</span>
+            <select class="inp" id="st-region" style="width:140px">
+                ${["IN", "US", "GB", "JP"].map(code =>
+                    opt(code, {IN: "India", US: "United States", GB: "United Kingdom", JP: "Japan"}[code], prefs.region)).join("")}
+            </select></div>
+        <div class="tr-track-row"><span class="grow sm">Date</span>
+            <select class="inp" id="st-date-format" style="width:140px">
+                ${opt("DD/MM/YYYY", "DD/MM/YYYY", prefs.date_format)}
+                ${opt("MM/DD/YYYY", "MM/DD/YYYY", prefs.date_format)}
+                ${opt("YYYY-MM-DD", "YYYY-MM-DD", prefs.date_format)}
+            </select></div>
+        <div class="tr-track-row"><span class="grow sm">Time</span>
+            <select class="inp" id="st-time-format" style="width:140px">
+                ${opt("24h", "24-hour", prefs.time_format)}
+                ${opt("12h", "12-hour", prefs.time_format)}
+            </select></div>
+        <div class="tr-track-row"><span class="grow sm">Week starts</span>
+            <select class="inp" id="st-week-start" style="width:140px">
+                ${opt("monday", "Monday", prefs.week_start)}
+                ${opt("sunday", "Sunday", prefs.week_start)}
+            </select></div>
+        <div class="tr-track-row"><span class="grow sm">Numbers</span>
+            <select class="inp" id="st-number-format" style="width:170px">
+                ${opt("indian", "1,23,456.78", prefs.number_format)}
+                ${opt("western", "123,456.78", prefs.number_format)}
+            </select></div>
+        <div class="tr-track-row"><span class="grow sm">Duration format</span>
+            <select class="inp" id="st-duration-format" style="width:170px">
+                ${opt("hm", "1h 45m", prefs.duration_format)}
+                ${opt("decimal", "1.75h (decimal, for payroll)", prefs.duration_format)}
+            </select></div>
+        <div class="sm t3" style="margin-top:10px">Language and region are independent — plenty of people
+            want one language's interface with another region's date and number formats.</div>
+        <div class="sm t3" style="margin-top:6px">These are saved, but no screen in this product reads
+            them yet to change how it displays dates, numbers or durations — and RTL layout for Arabic and
+            Hebrew is a separate, larger decision, not yet made. Translating this product's own screens
+            (today, only a handful of framework-level strings are) is further out still.</div>
+    </div>`;
+
+    root.querySelector("#st-lang").addEventListener("change", event => language.changeLanguage(event.target.value));
+    root.querySelector("#st-region").addEventListener("change", event =>
+        {_setLocalePrefs({region: event.target.value}); states.toast({message: "Saved."});});
+    root.querySelector("#st-date-format").addEventListener("change", event =>
+        {_setLocalePrefs({date_format: event.target.value}); states.toast({message: "Saved."});});
+    root.querySelector("#st-time-format").addEventListener("change", event =>
+        {_setLocalePrefs({time_format: event.target.value}); states.toast({message: "Saved."});});
+    root.querySelector("#st-week-start").addEventListener("change", event =>
+        {_setLocalePrefs({week_start: event.target.value}); states.toast({message: "Saved."});});
+    root.querySelector("#st-number-format").addEventListener("change", event =>
+        {_setLocalePrefs({number_format: event.target.value}); states.toast({message: "Saved."});});
+    root.querySelector("#st-duration-format").addEventListener("change", event =>
+        {_setLocalePrefs({duration_format: event.target.value}); states.toast({message: "Saved."});});
+}
+
+// ---------------------------------------------------------------------------
 // More — pure links, and the I2 note
 // ---------------------------------------------------------------------------
 
@@ -228,8 +320,6 @@ function _more(root) {
             <button class="btn" data-st="goto" data-surface="me">Open</button></div>
         <div class="tr-track-row"><span class="grow sm">Connected apps</span>
             <button class="btn" data-st="goto" data-surface="apps">Open</button></div>
-        <div class="sm t3" style="margin-top:10px">Language &amp; region is a separate module (I2)
-            and isn't built yet.</div>
     </div>`;
 
     root.querySelectorAll('[data-st="goto"]').forEach(button => button.addEventListener("click", async _ => {
