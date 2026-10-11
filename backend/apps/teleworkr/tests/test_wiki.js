@@ -42,6 +42,7 @@ exports.runTestsAsync = async function(argv) {
         await _testPublishDiscipline(w);
         await _testFreshness(w);
         await _testPageReviewNotification(w);
+        await _testWatchers(w);
         await _testVisibilityCeiling(w);
         await _testPublicScan(w);
         await _testPublicApproval(w);
@@ -101,7 +102,7 @@ async function _testPublishDiscipline(w) {
     _check("saving a new draft never rewrites the published version — the page shows v1 still, draft v2 is separate",
         read2.version == 1 && draft2.version == 2, JSON.stringify({shown: read2.version, draft: draft2.version}));
 
-    w.publishedPage = page; w.publishedSpace = space;
+    w.publishedPage = page; w.publishedSpace = space; w.draft2 = draft2;
 }
 
 async function _testFreshness(w) {
@@ -147,6 +148,36 @@ async function _testPageReviewNotification(w) {
         "SELECT * FROM notification WHERE org_id=? AND category='page_past_review' AND recipient_person_id=? AND object_ref=?",
         [w.org_id, w.carol, w.publishedPage.page_id]);
     _check("reading it again within the dedup window does not raise a duplicate", secondRead.length == 1);
+}
+
+async function _testWatchers(w) {
+    LOG.console("\n page watchers — completes comment_mention's wiki half\n");
+
+    await wiki.addPageWatcherAsync({org_id: w.org_id, actor_person_id: w.dave, page_id: w.publishedPage.page_id});
+    const withWatcher = await wiki.pageAsync(w.org_id, w.dave, w.publishedPage.page_id);
+    _check("the actor sees their own watch state", withWatcher.watching === true);
+    const asOwner = await wiki.pageAsync(w.org_id, w.carol, w.publishedPage.page_id);
+    _check("someone who hasn't watched sees watching false", asOwner.watching === false);
+
+    // draft2 (v2) was saved in _testPublishDiscipline, never published, no
+    // review ever requested for it — a real "wiki change" going live
+    const published2 = await wiki.publishPageAsync({org_id: w.org_id, actor_person_id: w.carol,
+        page_id: w.publishedPage.page_id, wiki_page_version_id: w.draft2.wiki_page_version_id,
+        review_cadence_months: 6});
+    _check("publishing the real new version succeeds", published2.version == 2, JSON.stringify(published2));
+
+    const watcherNotif = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='comment_mention' AND recipient_person_id=? AND object_ref=?",
+        [w.org_id, w.dave, w.publishedPage.page_id]);
+    _check("publishing a real change notifies the watcher", watcherNotif.length == 1, JSON.stringify(watcherNotif));
+    const ownerNotif = await dblayer.getQueryOrThrow(
+        "SELECT * FROM notification WHERE org_id=? AND category='comment_mention' AND recipient_person_id=?",
+        [w.org_id, w.carol]);
+    _check("the person who just published is never notified about their own change", ownerNotif.length == 0);
+
+    await wiki.removePageWatcherAsync({org_id: w.org_id, actor_person_id: w.dave, page_id: w.publishedPage.page_id});
+    const afterUnwatch = await wiki.pageAsync(w.org_id, w.dave, w.publishedPage.page_id);
+    _check("unwatching clears the flag", afterUnwatch.watching === false);
 }
 
 async function _testVisibilityCeiling(w) {
@@ -333,7 +364,7 @@ async function _buildWorld() {
 
 async function _cleanup(w) {
     if (!w?.org_id) return;
-    for (const table of ["wiki_acknowledgement", "wiki_page_task_link", "wiki_share_link", "wiki_public_request",
+    for (const table of ["wiki_acknowledgement", "wiki_page_watcher", "wiki_page_task_link", "wiki_share_link", "wiki_public_request",
         "wiki_review", "wiki_page_version", "wiki_page_pointer", "wiki_page", "wiki_space_member", "wiki_space",
         "leave_policy_version", "leave_policy_pointer", "audit_event", "notification"])
         await dblayer.runCmdBestEffortAsync(`DELETE FROM ${table} WHERE org_id=?`, [w.org_id]);

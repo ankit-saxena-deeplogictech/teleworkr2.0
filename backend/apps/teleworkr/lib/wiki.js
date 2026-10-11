@@ -326,6 +326,20 @@ exports.publishPageAsync = async function(request) {
         person_id: request.actor_person_id, source: "web", detail: {page_id: request.page_id}});}
     catch (err) {LOG.error(`Could not record a page.published event: ${err}`);}
 
+    // comment_mention's wiki half: a real new version going live is "wiki
+    // change" — notify the page's watchers, never the person who just
+    // published it themselves.
+    const watchers = await dblayer.getQueryOrThrow(
+        "SELECT person_id FROM wiki_page_watcher WHERE org_id=? AND page_id=?", [request.org_id, request.page_id]);
+    for (const watcher of watchers) {
+        if (watcher.person_id == request.actor_person_id) continue;
+        try {
+            await notifications.notifyAsync({org_id: request.org_id, category: "comment_mention",
+                recipient_person_id: watcher.person_id, actor_person_id: request.actor_person_id,
+                payload: {title: page.title}, object_ref: request.page_id});
+        } catch (err) {LOG.error(`Could not raise comment_mention for ${request.page_id}: ${err}`);}
+    }
+
     return result;
 }
 
@@ -349,6 +363,10 @@ exports.pageAsync = async function(org_id, actor_person_id, page_id) {
     if (!(await _canReadPageAsync(org_id, actor_person_id, page, space))) throw new Error(
         `This page is ${page.visibility || space.default_visibility}-visible and you are not covered by that.`);
 
+    const watching = (await dblayer.getQueryOrThrow(
+        "SELECT 1 FROM wiki_page_watcher WHERE org_id=? AND page_id=? AND person_id=?",
+        [org_id, page_id, actor_person_id])).length > 0;
+
     // page_past_review: no scheduler exists anywhere in this backend, so this
     // is computed lazily, the moment the owner happens to open their own page
     // — not pushed on a timer. Deduped against a 7-day window matching the
@@ -369,7 +387,7 @@ exports.pageAsync = async function(org_id, actor_person_id, page_id) {
             } catch (err) {LOG.error(`Could not raise page_past_review for ${page_id}: ${err}`);}
     }
 
-    if (page.source_type == "leave_policy") return {page, space, sections: await _renderLeavePolicyAsync(org_id, page.source_ref),
+    if (page.source_type == "leave_policy") return {page, space, watching, sections: await _renderLeavePolicyAsync(org_id, page.source_ref),
         linked_page_ids: [], latest_version_id: null, latest_version_number: null};
 
     // The published pointer is what's shown by default (that's what "published" means);
@@ -380,8 +398,8 @@ exports.pageAsync = async function(org_id, actor_person_id, page_id) {
     const published = await _currentVersionRowAsync(org_id, page_id);
     const latest = await _latestVersionRowAsync(org_id, page_id);
     const shown = published || latest;
-    if (!shown) return {page, space, sections: [], linked_page_ids: [], latest_version_id: null, latest_version_number: null};
-    return {page, space, sections: JSON.parse(shown.sections), linked_page_ids: JSON.parse(shown.linked_page_ids),
+    if (!shown) return {page, space, watching, sections: [], linked_page_ids: [], latest_version_id: null, latest_version_number: null};
+    return {page, space, watching, sections: JSON.parse(shown.sections), linked_page_ids: JSON.parse(shown.linked_page_ids),
         version: shown.version, author_person_id: shown.author_person_id,
         latest_version_id: latest.wiki_page_version_id, latest_version_number: latest.version,
         published_version_id: published?.wiki_page_version_id || null};
@@ -420,6 +438,34 @@ exports.searchPagesAsync = async function(request) {
         filtered.push(page);
     }
     return {pages: filtered};
+}
+
+// ---------------------------------------------------------------------------
+// watchers — completes comment_mention's wiki half ("...wiki change"),
+// the exact task_watcher shape (tasks.js), mirrored for pages
+// ---------------------------------------------------------------------------
+
+/** @param {object} request {org_id, actor_person_id, page_id} @returns The watcher edge */
+exports.addPageWatcherAsync = async function(request) {
+    await _requireAsync(request.org_id, request.actor_person_id, "wiki.read", "watch the page");
+    const page = await _pageRowAsync(request.org_id, request.page_id);
+    if (!page) throw new Error(`No page ${request.page_id}.`);
+    const row = {wiki_page_watcher_id: _uuid(), org_id: request.org_id,
+        page_id: page.page_id, person_id: request.actor_person_id, created_at: _now()};
+    await dblayer.runCmdOrThrow(
+        `INSERT INTO wiki_page_watcher (wiki_page_watcher_id, org_id, page_id, person_id, created_at) VALUES (?,?,?,?,?)`,
+        [row.wiki_page_watcher_id, row.org_id, row.page_id, row.person_id, row.created_at]);
+    return row;
+}
+
+/** @param {object} request {org_id, actor_person_id, page_id} */
+exports.removePageWatcherAsync = async function(request) {
+    await _requireAsync(request.org_id, request.actor_person_id, "wiki.read", "unwatch the page");
+    const page = await _pageRowAsync(request.org_id, request.page_id);
+    if (!page) throw new Error(`No page ${request.page_id}.`);
+    await dblayer.runCmdOrThrow("DELETE FROM wiki_page_watcher WHERE page_id=? AND person_id=?",
+        [page.page_id, request.actor_person_id]);
+    return "unwatched";
 }
 
 // ---------------------------------------------------------------------------

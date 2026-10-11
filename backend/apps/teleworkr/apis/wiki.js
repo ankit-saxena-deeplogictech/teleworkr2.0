@@ -113,6 +113,13 @@ exports.doService = async jsonReq => {
                     page_id: jsonReq.page_id});
                 return {...CONSTANTS.TRUE_RESULT, result};
             }
+            case "watch_page": {
+                if (jsonReq.watch === false) await wiki.removePageWatcherAsync(
+                    {org_id: jsonReq.org, actor_person_id: actor.person_id, page_id: jsonReq.page_id});
+                else await wiki.addPageWatcherAsync(
+                    {org_id: jsonReq.org, actor_person_id: actor.person_id, page_id: jsonReq.page_id});
+                return CONSTANTS.TRUE_RESULT;
+            }
             case "deprecate_page": {
                 const result = await wiki.deprecatePageAsync({org_id: jsonReq.org, actor_person_id: actor.person_id,
                     page_id: jsonReq.page_id, successor_page_id: jsonReq.successor_page_id, reason: jsonReq.reason});
@@ -207,7 +214,7 @@ const _actorAsync = async jsonReq => {
 
 const OPS = ["create_space", "change_space_visibility", "spaces", "add_space_member", "remove_space_member",
     "create_page", "save_draft", "request_review", "approve_review", "publish_page", "page", "search",
-    "mark_still_correct", "deprecate_page", "archive_page", "acknowledge", "acknowledgement_status",
+    "mark_still_correct", "watch_page", "deprecate_page", "archive_page", "acknowledge", "acknowledgement_status",
     "change_visibility", "request_public_publish", "pending_public_requests", "decide_public_request", "unpublish_public",
     "create_share_link", "revoke_share_link", "share_links", "standing_review",
     "link_task", "unlink_task", "pages_for_task", "tasks_for_page"];

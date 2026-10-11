@@ -182,6 +182,7 @@ function _paintDrawer(drawer, data, taskRefs, shares) {
                     states.esc(page.visibility || `inherits ${space.default_visibility}`)}${
                     page.owner_person_id ? "" : " · no owner"}</span></div>
             <div class="push row wrap" style="gap:6px">
+                <button class="btn" data-wk="toggle-watch">${data.watching ? "Watching" : "Watch"}</button>
                 ${isOwner && page.status != "archived" && page.status != "deprecated" ?
                     `<button class="btn" data-wk="toggle-edit">${state.editMode ? "View" : "Edit"}</button>` : ""}
                 ${isOwner ? `<button class="btn" data-wk="still-correct" style="padding:3px 7px">Still correct</button>` : ""}
@@ -199,6 +200,10 @@ function _paintDrawer(drawer, data, taskRefs, shares) {
         ${isOwner ? _ownerControlsHtml(page, shares) : ""}
     </div>`;
 
+    drawer.querySelector("[data-wk=\"toggle-watch\"]").addEventListener("click", async _ => {
+        const result = await _rest("watch_page", {page_id: page.page_id, watch: !data.watching});
+        if (result) await _renderDrawer(drawer.closest(".tr-view") || drawer.parentElement);
+    });
     drawer.querySelector("[data-wk=\"toggle-edit\"]")?.addEventListener("click", _ => {
         state.editMode = !state.editMode; _paintDrawer(drawer, data, taskRefs, shares);});
     drawer.querySelector("[data-wk=\"still-correct\"]")?.addEventListener("click", async _ => {
