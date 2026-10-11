@@ -16,6 +16,7 @@
 import {apimanager as apiman} from "/framework/js/apimanager.mjs";
 import {session} from "/framework/js/session.mjs";
 import {states} from "../states.mjs";
+import {locale} from "../locale.mjs";
 
 const API = "calendar";
 const _me = _ => ({id: session.get(APP_CONSTANTS.USERID)?.toString(),
@@ -41,7 +42,7 @@ async function _view() {
             <button class="btn sm" data-cal="prev">‹</button>
             <div class="grow cal-week">
                 <div class="up t3">${_weekLabel(state.weekStart)}</div>
-                <div class="sm t2">${_dateRange(state.weekStart)} · target ${_hm(target.target_seconds)}</div>
+                <div class="sm t2">${_dateRange(state.weekStart)} · target ${locale.formatDuration(target.target_seconds)}</div>
             </div>
             <button class="btn sm" data-cal="next">›</button>
         </div>
@@ -69,7 +70,7 @@ function _dayCard(day) {
         data-cal="day" data-date="${states.esc(date)}">
         <div class="up t3">${_shortDate(date)}</div>
         <div class="mono cal-day-target">${excluded ? states.esc(excluded.reason) :
-            _hm(day.target_seconds)}</div>
+            locale.formatDuration(day.target_seconds)}</div>
         ${excluded?.reason == "leave" ? `<div class="t3 xs">${states.esc(excluded.leave_type || "")}</div>` : ""}
     </div>`;
 }
@@ -131,4 +132,3 @@ const _shortDate = iso => new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefi
     {weekday: "short", day: "numeric"});
 const _longDate = iso => new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined,
     {weekday: "long", day: "numeric", month: "long"});
-const _hm = seconds => `${Math.floor(seconds/3600)}h ${String(Math.floor((seconds%3600)/60)).padStart(2, "0")}m`;

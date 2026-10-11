@@ -16,6 +16,7 @@
 import {session} from "/framework/js/session.mjs";
 import {apimanager as apiman} from "/framework/js/apimanager.mjs";
 import {states} from "./states.mjs";
+import {locale} from "./locale.mjs";
 import {render as renderDayBoard} from "./screens/dayboard.mjs";
 import {render as renderTraining} from "./screens/training.mjs";
 import {render as renderSurveys} from "./screens/surveys.mjs";
@@ -530,7 +531,7 @@ function _paintClock() {
 
     // A2 asks for the week total here. Only today's is a read the server currently
     // offers, so this states today rather than presenting a week figure it cannot back.
-    document.querySelector("#hdr-logged").textContent = `Today · ${_hm(seconds)} logged`;
+    document.querySelector("#hdr-logged").textContent = `Today · ${locale.formatDuration(seconds)} logged`;
 
     const status = document.querySelector("#statusctl");
     status.setAttribute("data-status", running ? "working" : "offline");
@@ -542,7 +543,7 @@ function _paintClock() {
 function _paintWhen() {
     const now = new Date();
     const date = now.toLocaleDateString(undefined, {weekday: "short", day: "numeric", month: "short"});
-    const time = now.toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"});
+    const time = locale.formatTime(Math.floor(now.getTime()/1000));
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     document.querySelector("#hdr-date").textContent = `${date} · ${time} ${zone}`;
 }
@@ -551,8 +552,6 @@ const _hms = total => {
     const h = Math.floor(total/3600), m = Math.floor((total%3600)/60), s = Math.floor(total%60);
     return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
 };
-
-const _hm = total => `${Math.floor(total/3600)}h ${String(Math.floor((total%3600)/60)).padStart(2,"0")}m`;
 
 /**
  * C2's one button, driven by state. Clocking in is immediate — hesitating in front
@@ -576,14 +575,14 @@ async function toggleClock() {
 
         const confirmed = await states.confirmAction({
             title: `Clock out at ${_time(preview.at)}?`,
-            body: `${_hm(preview.session_seconds)} will be recorded for today, bringing the day to ${
-                _hm(preview.today_total_seconds)}.`,
+            body: `${locale.formatDuration(preview.session_seconds)} will be recorded for today, bringing the day to ${
+                locale.formatDuration(preview.today_total_seconds)}.`,
             collateral: preview.warnings.map(warning => warning.message),
             confirmLabel: "Clock out"});
         if (!confirmed) return;
 
         const stopped = await _clockOp("out");
-        if (stopped) states.toast({message: `Clocked out. ${_hm(stopped.recorded_seconds)} recorded.`});
+        if (stopped) states.toast({message: `Clocked out. ${locale.formatDuration(stopped.recorded_seconds)} recorded.`});
     } finally {
         button.disabled = false;
         await _refreshClock();

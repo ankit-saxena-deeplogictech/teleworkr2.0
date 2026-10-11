@@ -21,6 +21,7 @@ import {apimanager as apiman} from "/framework/js/apimanager.mjs";
 import {session} from "/framework/js/session.mjs";
 import {states} from "../states.mjs";
 import {gapFiller} from "../../components/gap-filler/gap-filler.mjs";
+import {locale} from "../locale.mjs";
 
 const API_TIME = "time", API_CALENDAR = "calendar";
 const _me = _ => ({id: session.get(APP_CONSTANTS.USERID)?.toString(),
@@ -69,12 +70,12 @@ async function _view() {
         </div>
 
         <div class="ts-totals">
-            <span><span class="mono">${_hm(totals.total_seconds)}</span> logged</span>
+            <span><span class="mono">${locale.formatDuration(totals.total_seconds)}</span> logged</span>
             <span class="dot"></span>
-            <span><span class="mono">${target ? _hm(target.target_seconds) : "—"}</span> target${
+            <span><span class="mono">${target ? locale.formatDuration(target.target_seconds) : "—"}</span> target${
                 target?.working_days ? ` · ${target.working_days} working days` : ""}</span>
             <span class="dot"></span>
-            <span><span class="mono">${_hm(totals.billable_seconds)}</span> billable</span>
+            <span><span class="mono">${locale.formatDuration(totals.billable_seconds)}</span> billable</span>
             ${totals.reconstructed_count ? `<span class="dot"></span>
                 <span class="ts-recon">${totals.reconstructed_count} reconstructed — check these</span>` : ""}
         </div>
@@ -94,8 +95,8 @@ async function _view() {
             <div class="up t3">By task</div>
             ${totals.by_task.length ? totals.by_task.map(row => `
                 <div class="row sm"><span class="mono grow">${states.esc(row.task_ref || "(no task)")}</span>
-                <span class="t2">${_hm(row.seconds)}</span>
-                ${row.billable_seconds != row.seconds ? `<span class="t3 xs">${_hm(row.seconds - row.billable_seconds)} non-billable</span>` : ""}</div>`).join("") :
+                <span class="t2">${locale.formatDuration(row.seconds)}</span>
+                ${row.billable_seconds != row.seconds ? `<span class="t3 xs">${locale.formatDuration(row.seconds - row.billable_seconds)} non-billable</span>` : ""}</div>`).join("") :
                 `<p class="t3 sm">No time recorded this week yet.</p>`}
         </div>
     </div>`;
@@ -118,7 +119,7 @@ function _daySection(label, date, events, editable) {
             <span class="t3 xs">${states.esc(date)}</span>
             <span class="push"></span>
             ${editable(date) ? `<button class="btn sm" data-ts="reconstruct" data-date="${states.esc(date)}">Reconstruct</button>` : ""}
-            <span class="mono sm">${_hm(dayEvents.reduce((sum, e) => sum + _liveSeconds(e), 0))}</span>
+            <span class="mono sm">${locale.formatDuration(dayEvents.reduce((sum, e) => sum + _liveSeconds(e), 0))}</span>
         </div>
         ${dayEvents.length ? dayEvents.map(event => _entryRow(event, editable(date))).join("") :
             `<div class="t3 xs ts-noentries">—</div>`}
@@ -134,7 +135,7 @@ function _entryRow(event, canEdit) {
         ${event.category ? `<span class="ts-chip">${states.esc(event.category)}</span>` : ""}
         ${event.reconstructed ? `<span class="ts-chip recon">reconstructed</span>` : ""}
         ${running ? `<span class="ts-chip live">running</span>` : ""}
-        <span class="mono sm">${_hm(_liveSeconds(event))}</span>
+        <span class="mono sm">${locale.formatDuration(_liveSeconds(event))}</span>
         ${canEdit && !running ? `<button class="btn sm" data-ts="edit" data-entry="${states.esc(event.entry_event_id)}">Edit</button>` : ""}
     </div>`;
 }
@@ -176,10 +177,10 @@ async function _submit(root) {
     if (!week) return;
     const totals = week.totals || {};
     const checks = [
-        `Total this week: ${_hm(totals.total_seconds || 0)}`,
+        `Total this week: ${locale.formatDuration(totals.total_seconds || 0)}`,
         ...(totals.reconstructed_count ?
             [`${totals.reconstructed_count} entry${totals.reconstructed_count == 1 ? " was" : "s were"} reconstructed from signals — worth a look.`] : []),
-        `Billable: ${_hm(totals.billable_seconds || 0)} of ${_hm(totals.total_seconds || 0)}`];
+        `Billable: ${locale.formatDuration(totals.billable_seconds || 0)} of ${locale.formatDuration(totals.total_seconds || 0)}`];
     const confirmed = await states.confirmAction({
         title: "Submit this week?",
         body: "Submitting pins the entry events as they stood. A later edit cannot silently change a submitted week — your manager returns it first.",
@@ -224,9 +225,8 @@ const _liveSeconds = event => {
 
 const _span = event => {
     if (!event.started_at) return "";
-    const start = new Date(event.started_at*1000).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"});
-    const end = event.ended_at ? new Date(event.ended_at*1000).toLocaleTimeString(undefined,
-        {hour: "2-digit", minute: "2-digit"}) : "now";
+    const start = locale.formatTime(event.started_at);
+    const end = event.ended_at ? locale.formatTime(event.ended_at) : "now";
     return `${start}–${end}`;
 };
 
@@ -254,5 +254,3 @@ const _dateRange = weekStart => {
     const fmt = iso => new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, {day: "numeric", month: "short"});
     return `${fmt(weekStart)} – ${fmt(_dateFor(weekStart, 6))}`;
 };
-
-const _hm = total => `${Math.floor(total/3600)}h ${String(Math.floor((total%3600)/60)).padStart(2,"0")}m`;

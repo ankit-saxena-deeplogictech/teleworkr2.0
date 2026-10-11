@@ -21,6 +21,7 @@ import {session} from "/framework/js/session.mjs";
 import {states} from "../states.mjs";
 import {taskPicker} from "../../components/task-picker/task-picker.mjs";
 import {gapFiller} from "../../components/gap-filler/gap-filler.mjs";
+import {locale} from "../locale.mjs";
 
 const API_DAYBOARD = "dayboard", API_CLOCK = "clock", API_TASKS = "tasks", API_WINDOWS = "windows", API_TIME = "time";
 
@@ -86,7 +87,7 @@ function _workingOn(board) {
 
     if (clock.state == "break") return `<div class="db-card db-clockcard on-break">
         <div class="up t3">On a break</div>
-        <h3 style="margin-top:6px">${states.esc(_hm(clock.today_total_seconds))} logged so far today</h3>
+        <h3 style="margin-top:6px">${states.esc(locale.formatDuration(clock.today_total_seconds))} logged so far today</h3>
         <button class="btn pri" data-db="resume">Resume working</button>
     </div>`;
 
@@ -105,9 +106,9 @@ function _workingOn(board) {
         <h3 style="margin-top:6px">${states.esc(working.title || working.task_ref)}</h3>
         <p class="t2 sm">${states.esc(working.task_ref)}${working.project?` · ${states.esc(working.project)}`:""}${
             working.due_date?` · due ${states.esc(working.due_date)}`:""}</p>
-        <p class="sm" style="margin-top:6px">Timer running · ${states.esc(_hm(working.session_seconds))} this session
-            ${working.estimate_minutes ? ` · ${states.esc(_hm(working.logged_seconds))} / ${
-                states.esc(_hm(working.estimate_minutes*60))} est` : ""}</p>
+        <p class="sm" style="margin-top:6px">Timer running · ${states.esc(locale.formatDuration(working.session_seconds))} this session
+            ${working.estimate_minutes ? ` · ${states.esc(locale.formatDuration(working.logged_seconds))} / ${
+                states.esc(locale.formatDuration(working.estimate_minutes*60))} est` : ""}</p>
         <div class="row" style="gap:8px;margin-top:10px">
             <button class="btn" data-db="pause">☕ Break</button>
             <button class="btn" data-db="switch">Switch task</button>
@@ -294,10 +295,8 @@ function _greeting(name) {
     return `Good ${part}${name ? `, ${name}` : ""}`;
 }
 
-const _clockTime = epochSeconds => epochSeconds ?
-    new Date(epochSeconds*1000).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"}) : "—";
-const _minutesToClock = epochMinutes =>
-    new Date(epochMinutes*60000).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"});
+const _clockTime = epochSeconds => epochSeconds ? locale.formatTime(epochSeconds) : "—";
+const _minutesToClock = epochMinutes => locale.formatTime(epochMinutes*60);
 
 function _wireBrief(root, board) {
     root.querySelector('[data-b4="dismiss"]')?.addEventListener("click", _ => {
@@ -339,7 +338,7 @@ function _presence(board) {
 function _weekFooter(board) {
     const week = board.week;
     return `<div class="db-card db-week">
-        <span>Week · ${states.esc(_hm(week.logged_seconds))} / ${states.esc(_hm(week.target_seconds))}</span>
+        <span>Week · ${states.esc(locale.formatDuration(week.logged_seconds))} / ${states.esc(locale.formatDuration(week.target_seconds))}</span>
         <button class="btn push" data-db="timesheet">Open timesheet →</button>
     </div>`;
 }
@@ -421,7 +420,6 @@ const _hms = total => {
     const h = Math.floor(total/3600), m = Math.floor((total%3600)/60), s = Math.floor(total%60);
     return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
 };
-const _hm = total => `${Math.floor(total/3600)}h ${String(Math.floor((total%3600)/60)).padStart(2,"0")}m`;
 const _ago = epochSeconds => {
     if (!epochSeconds) return "";
     const minutes = Math.max(0, Math.round((Date.now()/1000 - epochSeconds) / 60));
