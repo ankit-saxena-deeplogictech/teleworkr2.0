@@ -7,7 +7,7 @@ import {application} from "./application.mjs";
 import {router} from "/framework/js/router.mjs";
 import {session} from "/framework/js/session.mjs";
 import {securityguard} from "/framework/js/securityguard.mjs";
-import {apimanager as apiman} from "/framework/js/apimanager.mjs";
+import {apiman} from "./apiclient.mjs";
 
 const LOGOUT_LISTENERS = "__loginmanager_logout_listeners", 
     TIMEOUT_CURRENT = "__loginmanager_timeout_current";

@@ -27,7 +27,7 @@
  * License: See the enclosed LICENSE file.
  */
 
-import {apimanager as apiman} from "/framework/js/apimanager.mjs";
+import {apiman} from "../apiclient.mjs";
 import {session} from "/framework/js/session.mjs";
 import {i18n} from "/framework/js/i18n.mjs";
 import {language} from "../language.mjs";

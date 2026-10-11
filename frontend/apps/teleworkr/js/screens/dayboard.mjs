@@ -16,7 +16,7 @@
  * License: See enclosed LICENSE file.
  */
 
-import {apimanager as apiman} from "/framework/js/apimanager.mjs";
+import {apiman} from "../apiclient.mjs";
 import {session} from "/framework/js/session.mjs";
 import {states} from "../states.mjs";
 import {taskPicker} from "../../components/task-picker/task-picker.mjs";

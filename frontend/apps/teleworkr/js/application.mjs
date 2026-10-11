@@ -8,7 +8,7 @@ import {router} from "/framework/js/router.mjs";
 import {session} from "/framework/js/session.mjs";
 import {loadbalancer} from "/framework/js/loadbalancer.mjs";
 import {securityguard} from "/framework/js/securityguard.mjs";
-import {apimanager as apiman} from "/framework/js/apimanager.mjs";
+import {apiman} from "./apiclient.mjs";
 import {APP_CONSTANTS as AUTO_APP_CONSTANTS} from "./constants.mjs";
 
 const init = async hostname => {
