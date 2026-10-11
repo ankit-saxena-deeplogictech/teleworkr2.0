@@ -292,7 +292,7 @@ const _rest = (op, extra = {}) => _call(API, op, extra);
 async function _call(api, op, extra = {}) {
     let response;
     try {
-        response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/${api}`, "GET", {op, ..._me(), ...extra}, true);
+        response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/${api}`, "POST", {op, ..._me(), ...extra}, true);
     } catch (err) {response = null; LOG.error(`${api} op ${op} failed: ${err}`);}
     if (!response?.result) {
         states.toast({message: response?.reason || `The ${api} service did not respond.`, ms: 8000});
