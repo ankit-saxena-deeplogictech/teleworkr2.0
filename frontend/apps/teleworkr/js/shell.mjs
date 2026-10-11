@@ -347,8 +347,8 @@ async function _renderWizardStep2() {
         // Reads colleagues' own already-declared hours rather than simulating the
         // form's unsaved values — team_overlap only ever reads from the database,
         // and there is nothing to preview against for someone who hasn't saved yet.
-        const response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/windows`, "POST",
-            {op: "team_overlap", person_ids: cohort.map(p => p.person_id),
+        const response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/windows`, "GET",
+            {op: "team_overlap", person_ids: JSON.stringify(cohort.map(p => p.person_id)),
                 date: new Date().toISOString().substring(0,10), ..._me()}, true);
         if (!response?.result) {result.textContent = "Couldn't check right now."; return;}
 
@@ -369,9 +369,9 @@ async function _renderWizardStep2() {
         const timezone = root.querySelector("#wz-window-tz").value.trim();
         const button = root.querySelector("#wz-finish");
         button.disabled = true;
-        const response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/windows`, "POST",
+        const response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/windows`, "GET",
             {op: "set", timezone, start_minute: _wzMinutes(root.querySelector("#wz-start").value),
-                end_minute: _wzMinutes(root.querySelector("#wz-end").value), days,
+                end_minute: _wzMinutes(root.querySelector("#wz-end").value), days: JSON.stringify(days),
                 valid_from: new Date().toISOString().substring(0,10), ..._me()}, true);
         if (!response?.result) {
             button.disabled = false;

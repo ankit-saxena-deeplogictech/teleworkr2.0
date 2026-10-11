@@ -289,10 +289,13 @@ async function _computeTravelPreview(from_date, to_date) {
 
 const _rest = (op, extra = {}) => _call(API, op, extra);
 
+// the framework's GET encoder mangles array values, so send them as one JSON string (the server parses it back)
+const _arraysAsJSON = obj => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, Array.isArray(v) ? JSON.stringify(v) : v]));
+
 async function _call(api, op, extra = {}) {
     let response;
     try {
-        response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/${api}`, "POST", {op, ..._me(), ...extra}, true);
+        response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/${api}`, "GET", {op, ..._me(), ..._arraysAsJSON(extra)}, true);
     } catch (err) {response = null; LOG.error(`${api} op ${op} failed: ${err}`);}
     if (!response?.result) {
         states.toast({message: response?.reason || `The ${api} service did not respond.`, ms: 8000});
