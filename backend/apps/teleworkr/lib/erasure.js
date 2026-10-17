@@ -60,11 +60,12 @@ const CURATED_ERASE = Object.freeze([
     {entity: "survey_invitation", columns: ["person_id"]},
     {entity: "notification", columns: ["recipient_person_id"]},
     {entity: "notification_setting", columns: ["person_id"]},
-    {entity: "session", columns: ["person_id"]}
+    {entity: "session", columns: ["person_id"]},
+    {entity: "chat_member", columns: ["person_id"]}
 ]);
 
 /** Most PSEUDONYMISE-declared tables use person_id; these name the person differently. */
-const PSEUDONYMISE_COLUMN_OVERRIDE = Object.freeze({task_event: "actor_person_id", wiki_page: "owner_person_id"});
+const PSEUDONYMISE_COLUMN_OVERRIDE = Object.freeze({task_event: "actor_person_id", wiki_page: "owner_person_id", chat_message: "sender_person_id"});
 /** Declared PSEUDONYMISE but with no single person-scoped column to count against — a batch record or a join, not one person's row. */
 const PSEUDONYMISE_SKIP = Object.freeze(new Set(["leave_run", "timesheet_entry"]));
 

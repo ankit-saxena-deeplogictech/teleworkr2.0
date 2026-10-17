@@ -1,0 +1,70 @@
+/*
+ * Telemeet — the lobby, and the room: a video stage on the left, the roster and shared notes on the right,
+ * after wireframe F1. Token layer only (panel / raise / stroke; brand for identity; mint = in the call,
+ * dawn = asleep or degraded, ember = leave / end).
+ * (C) 2026 TekMonks. All rights reserved.
+ * License: See the enclosed LICENSE file.
+ */
+
+.page.tmt { display: flex; flex-direction: column; gap: 12px; }
+.tmt-card { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--r-lg); padding: 14px 16px;
+    display: flex; flex-direction: column; gap: 10px; }
+.tmt-pick { display: flex; flex-wrap: wrap; gap: 4px 14px; max-height: 150px; overflow-y: auto; }
+.tmt-pick label { display: flex; align-items: center; gap: 6px; font-size: 12.5px; cursor: pointer; }
+
+/* the room */
+.tmt-room { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; align-items: start; }
+.tmt-stage { background: var(--void); border: 1px solid var(--stroke); border-radius: var(--r-lg); padding: 12px;
+    display: flex; flex-direction: column; gap: 12px; min-height: 420px; }
+.tmt-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tmt-head h2 { font-size: 16px; }
+.tmt-grid { flex: 1; display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-content: start; }
+.tmt-tile { position: relative; aspect-ratio: 16 / 9; background: var(--panel); border: 1px solid var(--stroke);
+    border-radius: var(--r-md); overflow: hidden; display: grid; place-items: center; }
+.tmt-tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+.tmt-tile.me video { transform: scaleX(-1); }
+.tmt-tile.me.sharing video { transform: none; object-fit: contain; }
+.tmt-tile .av { width: 56px; height: 56px; font-size: 22px; position: relative; }
+.tmt-tile.has-video .av { display: none; }
+.tmt-tile .tmt-name { position: absolute; left: 8px; bottom: 8px; font-size: 11.5px; padding: 2px 8px; border-radius: 6px;
+    background: rgba(7, 10, 17, .72); color: #EAEFF9; }
+.tmt-tile.speaking { box-shadow: 0 0 0 2px var(--mint); }
+
+.tmt-controls { display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tmt-ctl { height: 36px; padding: 0 16px; border-radius: 18px; background: var(--panel); border: 1px solid var(--stroke-2);
+    color: var(--t1); font-size: 12.5px; font-weight: 500; cursor: pointer; transition: .14s var(--ease); }
+.tmt-ctl:hover { background: var(--raise); }
+.tmt-ctl.off { background: var(--ember-w); border-color: var(--ember); color: var(--ember); }
+.tmt-ctl.on { background: var(--brand-w); border-color: var(--brand); color: var(--brand); }
+.tmt-ctl.leave { background: var(--ember); border-color: var(--ember); color: #fff; }
+.tmt-banner { font-size: 12px; padding: 8px 12px; border-radius: var(--r-sm); background: var(--dawn-w); color: var(--dawn);
+    border: 1px solid var(--dawn); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tmt-banner.info { background: var(--iris-w); color: var(--iris); border-color: var(--iris); }
+
+/* side panels */
+.tmt-side { display: flex; flex-direction: column; gap: 12px; }
+.tmt-person { display: flex; align-items: center; gap: 9px; padding: 6px 0; border-top: 1px solid var(--stroke); }
+.tmt-person:first-of-type { border-top: none; }
+.tmt-person .tmt-sub { font-size: 11px; color: var(--t3); }
+.tmt-chip { font-family: var(--f-data); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; padding: 3px 8px;
+    border-radius: 6px; flex: none; margin-left: auto; }
+.tmt-chip.in { color: var(--mint); background: var(--mint-w); }
+.tmt-chip.asleep { color: var(--dawn); background: var(--dawn-w); }
+.tmt-chip.invited { color: var(--t2); background: var(--raise); }
+.tmt-notes { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
+.tmt-line { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; padding: 6px 8px; border-radius: var(--r-sm);
+    background: var(--raise); }
+.tmt-line .tmt-kind { font-family: var(--f-data); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; flex: none;
+    padding: 2px 6px; border-radius: 5px; margin-top: 2px; }
+.tmt-kind.note { color: var(--t2); background: var(--stroke); }
+.tmt-kind.action { color: var(--brand); background: var(--brand-w); }
+.tmt-kind.decision { color: var(--plum); background: var(--plum-w); }
+.tmt-line .tmt-actions { margin-left: auto; display: flex; gap: 6px; flex: none; }
+.tmt-line .tmt-actions button { font-size: 10.5px; color: var(--t3); cursor: pointer; }
+.tmt-line .tmt-actions button:hover { color: var(--t1); }
+.tmt-add { display: flex; gap: 6px; flex-wrap: wrap; }
+.tmt-add .inp { flex: 1; min-width: 120px; }
+
+@media (max-width: 900px) {
+    .tmt-room { grid-template-columns: 1fr; }
+}

@@ -108,6 +108,7 @@ async function _paintDay(root) {
             <div class="cal-meet-row">
                 <div class="sm"><b>${states.esc(m.title)}</b> · ${locale.formatTime(m.starts_at)}–${locale.formatTime(m.ends_at)}
                     · ${m.attendees.length} ${m.attendees.length == 1 ? "person" : "people"}</div>
+                <button class="btn sm" data-meet="join" data-id="${states.esc(m.meeting_id)}">Join call</button>
                 ${m.is_owner ? `<button class="btn sm" data-meet="cancel" data-id="${states.esc(m.meeting_id)}">Cancel</button>` : ""}
             </div>`).join("") : `<div class="sm t3">No meetings scheduled.</div>`}
         <div class="up t3">New meeting</div>
@@ -138,6 +139,8 @@ async function _paintDay(root) {
     panel.querySelector("[data-meet=\"create\"]").addEventListener("click", _ => _createMeeting(root));
     for (const button of panel.querySelectorAll("[data-meet=\"cancel\"]"))
         button.addEventListener("click", _ => _cancelMeeting(root, button.getAttribute("data-id")));
+    for (const button of panel.querySelectorAll("[data-meet=\"join\"]"))
+        button.addEventListener("click", _ => _joinCall(button.getAttribute("data-id")));
     panel.querySelector("[data-meet=\"cut30\"]").addEventListener("click", _ => {
         panel.querySelector("#meet-duration").value = "30"; _refreshPreview(root);});
     panel.querySelector("[data-meet=\"suggest\"]").addEventListener("click", _ => _suggestTimes(root));
@@ -307,6 +310,17 @@ async function _restMeetings(op, extra={}) {
     } catch (err) {response = null; LOG.error(`Meetings op ${op} failed: ${err}`);}
     if (!response?.result) {states.toast({message: response?.reason || "The meeting did not save.", ms: 8000}); return null;}
     return response;
+}
+
+/** Opens (or reuses) the Telemeet room for a meeting and hands it to the Telemeet screen. */
+async function _joinCall(meeting_id) {
+    let response;
+    try {
+        response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/telemeet`, "GET", {op: "create_room", ..._me(), meeting_id}, true);
+    } catch (err) {response = null; LOG.error(`Telemeet create_room failed: ${err}`);}
+    if (!response?.result) {states.toast({message: response?.reason || "The call could not be opened.", ms: 8000}); return;}
+    window.__tw_join_room = response.room.room_id;
+    (await import("../shell.mjs")).shell.setSurface("telemeet");
 }
 
 /** Silent on failure — this is the composer's background enrichment, not the save path (same idiom shell.mjs's own notif poll uses). */

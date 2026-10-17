@@ -80,6 +80,9 @@ const SURFACES = Object.freeze({
         capability: "people.import"},
     identity:  {console: "Admin", label: "Identity", screen: "L1", order: 111, classification: CLASS.EXCLUSIVE,
         capability: "identity.manage"},
+    // Activity & logs: day-level only (activity.read_minute_level is in CEILING).
+    activity:  {console: "Admin", label: "Activity & logs", screen: "L5", order: 112, classification: CLASS.EXCLUSIVE,
+        capability: "activity.read_daily"},
     // H4: everyone sees their own entries (audit.read_own — every built-in
     // role including guest holds it); the fuller org-wide/policy log only
     // renders inside the same screen for whoever also holds audit.read_all/
@@ -152,6 +155,15 @@ const SURFACES = Object.freeze({
     // gate inside the screen from projection.capabilities, same as
     // wellbeing/security/approvals.
     apps: {console: "Me", label: "Apps", screen: "G1", order: 79, classification: CLASS.SHARED},
+
+    // Team chat: its own "Collaborate" console, the same way Wiki has one — TABS is a
+    // frozen 5-slot header. Shared: everyone with chat.use (every role but guest).
+    chat: {console: "Collaborate", label: "Team chat", screen: "F6", order: 175, classification: CLASS.SHARED,
+        capability: "chat.use"},
+
+    // Telemeet: rooms live next to chat in the Collaborate console.
+    telemeet: {console: "Collaborate", label: "Telemeet", screen: "F1", order: 176, classification: CLASS.SHARED,
+        capability: "telemeet.join"},
 
     // Wiki (N): its own console, the same way "Leave" and "Assigned" exist
     // for their sections — TABS is a frozen 5-slot header (day/tasks/

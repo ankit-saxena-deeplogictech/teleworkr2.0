@@ -111,6 +111,16 @@ const CATALOGUE = Object.freeze({
     "session.manage": {label: "Manage sessions org-wide", scopes: [SCOPES.ORG], always_audited: true},
     "incident.manage": {label: "Open, work and close security incidents", scopes: [SCOPES.ORG], always_audited: true},
 
+    // activity & logs (day-level only — activity.read_minute_level stays in CEILING)
+    "activity.read_daily": {label: "Read day-level activity and login logs", scopes: [SCOPES.ORG], always_audited: true},
+
+    // team chat — conversation content is readable by its members only (message.read_content stays in CEILING)
+    "chat.use": {label: "Use team chat", scopes: [SCOPES.ORG]},
+    "chat.channel.create": {label: "Create chat channels", scopes: [SCOPES.ORG]},
+
+    // Telemeet — peer-to-peer video rooms; the server never sees media
+    "telemeet.join": {label: "Start and join Telemeet calls", scopes: [SCOPES.ORG]},
+
     // tasks (D1/D2) — collaboration objects, org-wide reads
     "task.create": {label: "Create tasks", scopes: [SCOPES.ORG]},
     "task.read": {label: "Read tasks", scopes: [SCOPES.ORG]},
@@ -196,7 +206,7 @@ const BUILTIN_ROLES = Object.freeze({
     employee: {label: "Employee", capabilities: [
         ["time.read_own", SCOPES.SELF], ["timesheet.read", SCOPES.SELF], ["leave.request", SCOPES.SELF],
         ["audit.read_own", SCOPES.SELF], ["wellbeing.read_own", SCOPES.SELF], ["session.read_own", SCOPES.SELF],
-        ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG], ["app.access.approve", SCOPES.ORG],
+        ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG], ["chat.use", SCOPES.ORG], ["telemeet.join", SCOPES.ORG], ["app.access.approve", SCOPES.ORG],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     lead: {label: "Team lead", capabilities: [
         ["time.read_own", SCOPES.SELF], ["timesheet.read", SCOPES.DIRECT_REPORTS], ["timesheet.approve", SCOPES.DIRECT_REPORTS],
@@ -205,7 +215,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["workload.read", SCOPES.DIRECT_REPORTS],
         ["audit.read_own", SCOPES.SELF], ["wellbeing.read_own", SCOPES.SELF], ["session.read_own", SCOPES.SELF],
         ["training.assign", SCOPES.DIRECT_REPORTS], ["training.track", SCOPES.DIRECT_REPORTS],
-        ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG], ["app.access.approve", SCOPES.ORG],
+        ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG], ["chat.use", SCOPES.ORG], ["telemeet.join", SCOPES.ORG], ["chat.channel.create", SCOPES.ORG], ["app.access.approve", SCOPES.ORG],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG]]},
     hr: {label: "HR", capabilities: [
         ["time.read_own", SCOPES.SELF], ["timesheet.read", SCOPES.ORG], ["timesheet.approve", SCOPES.DIRECT_REPORTS],
@@ -217,7 +227,7 @@ const BUILTIN_ROLES = Object.freeze({
         ["wellbeing.read_aggregate", SCOPES.ORG], ["workload.read", SCOPES.DIRECT_REPORTS],
         ["audit.read_own", SCOPES.SELF], ["audit.read_policy", SCOPES.ORG],
         ["wellbeing.read_own", SCOPES.SELF], ["wellbeing.publish_signal", SCOPES.ORG], ["session.read_own", SCOPES.SELF],
-        ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG], ["wiki.publish_public", SCOPES.ORG],
+        ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG], ["chat.use", SCOPES.ORG], ["telemeet.join", SCOPES.ORG], ["chat.channel.create", SCOPES.ORG], ["wiki.publish_public", SCOPES.ORG],
         ["app.access.approve", SCOPES.ORG],
         ["data.manage_requests", SCOPES.ORG], ["data.erase", SCOPES.ORG],
         ["training.publish", SCOPES.ORG], ["training.assign", SCOPES.ORG], ["training.track", SCOPES.ORG],
@@ -233,9 +243,10 @@ const BUILTIN_ROLES = Object.freeze({
         ["capability.grant", SCOPES.ORG], ["capability.revoke", SCOPES.ORG], ["audit.read_all", SCOPES.ORG],
         ["audit.read_own", SCOPES.SELF], ["person_data.export", SCOPES.ORG], ["user.impersonate", SCOPES.ORG],
         ["session.read_own", SCOPES.SELF], ["session.manage", SCOPES.ORG], ["incident.manage", SCOPES.ORG],
+        ["activity.read_daily", SCOPES.ORG],
         ["wiki.publish_public", SCOPES.ORG], ["wellbeing.read_own", SCOPES.SELF],
         ["wellbeing.publish_signal", SCOPES.ORG], ["workload.read", SCOPES.DIRECT_REPORTS],
-        ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG],
+        ["wiki.read", SCOPES.ORG], ["wiki.write", SCOPES.ORG], ["chat.use", SCOPES.ORG], ["telemeet.join", SCOPES.ORG], ["chat.channel.create", SCOPES.ORG],
         ["app.access.approve", SCOPES.ORG], ["app.catalogue.manage", SCOPES.ORG],
         ["data.manage_requests", SCOPES.ORG], ["data.erase", SCOPES.ORG],
         ["task.create", SCOPES.ORG], ["task.read", SCOPES.ORG], ["task.edit", SCOPES.ORG], ["task.assign", SCOPES.ORG], ["task.delete", SCOPES.ORG],

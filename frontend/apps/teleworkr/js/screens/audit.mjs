@@ -37,6 +37,8 @@ const TEMPLATES = {
     "task.deleted": row => `Deleted task ${states.esc(row.detail.task_ref || row.object_ref)}`,
     "session.revoked": row => `Revoked sessions for ${row.detail.target?.person_id ? "one person" :
         row.detail.target?.role_name ? `everyone holding ${states.esc(row.detail.target.role_name)}` : "the whole org"}`,
+    "activity.viewed": row => `Viewed ${{login_log: "the login log", person_days: "day-level activity", app_log: "the app log"}[row.detail.view] || "activity"}` +
+        ` for ${states.esc(row.detail.from)} to ${states.esc(row.detail.to)}`,
     "leave_policy.published": row => `Published a leave policy for ${states.esc(row.object_ref)} — effective ${states.esc(row.detail.effective_from)}`,
     "person.erased": row => `Executed an erasure${row.reason ? ` — ${states.esc(row.reason)}` : ""}`,
     "user.impersonated": row => `Impersonated a user${row.reason ? ` — ${states.esc(row.reason)}` : ""}`

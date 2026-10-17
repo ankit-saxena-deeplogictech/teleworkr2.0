@@ -49,7 +49,7 @@ const CATEGORIES = Object.freeze({
     time:       {label: "Time entries",              test: action => action.startsWith("time_entry.")},
     permission: {label: "Role and permission changes", test: action => action.startsWith("role.") || action.startsWith("capability.")},
     export:     {label: "Exports of people's data",  test: action => action.endsWith(".exported")},
-    access:     {label: "Access and sessions",       test: action => action.startsWith("session.") || action.startsWith("integration.")},
+    access:     {label: "Access and sessions",       test: action => action.startsWith("session.") || action.startsWith("integration.") || action.startsWith("activity.")},
     deletion:   {label: "Deletions",                 test: action => action.endsWith(".deleted")}
 });
 

@@ -34,6 +34,9 @@ import {render as renderAccess} from "./screens/access.mjs";
 import {render as renderData} from "./screens/data.mjs";
 import {render as renderIdentity} from "./screens/identity.mjs";
 import {render as renderSecurity} from "./screens/security.mjs";
+import {render as renderActivity} from "./screens/activity.mjs";
+import {render as renderChat} from "./screens/chat.mjs";
+import {render as renderTelemeet} from "./screens/telemeet.mjs";
 import {render as renderAudit} from "./screens/audit.mjs";
 import {render as renderWindows} from "./screens/windows.mjs";
 import {render as renderOfficedays} from "./screens/officedays.mjs";
@@ -45,7 +48,7 @@ import {render as renderMetrics} from "./screens/metrics.mjs";
 import {render as renderSettings} from "./screens/settings.mjs";
 import {omniBar} from "../components/omni-bar/omni-bar.mjs";
 
-const API_SHELL = "shell", API_CLOCK = "clock", API_NOTIF = "notifications";
+const API_SHELL = "shell", API_CLOCK = "clock", API_NOTIF = "notifications", API_CHAT = "chat";
 
 /**
  * Screens land one increment at a time. A surface with no entry here still shows
@@ -57,12 +60,13 @@ const SCREENS = {day: renderDayBoard, training: renderTraining, trainingtrack: r
     surveys: renderSurveys, tasks: renderTasks, timesheet: renderTimesheet,
     team: renderTeam, calendar: renderCalendar, leave: renderLeave, people: renderPeople,
     me: renderDisclosure, recruitment: renderRecruitment, wellbeing: renderWellbeing, wiki: renderWiki,
-    permissions: renderAccess, data: renderData, identity: renderIdentity, security: renderSecurity,
+    permissions: renderAccess, data: renderData, identity: renderIdentity, security: renderSecurity, activity: renderActivity, chat: renderChat, telemeet: renderTelemeet,
     audit: renderAudit, windows: renderWindows, officedays: renderOfficedays, approvals: renderApprovals,
     workload: renderWorkload, reports: renderReports, apps: renderApps, metrics: renderMetrics,
     settings: renderSettings};
 const CLOCK_POLL_MS = 30000;        // the server is the record; the local tick is only the seconds between polls
 const NOTIF_POLL_MS = 60000;
+const CHAT_POLL_MS = 20000;
 const THEME_KEY = "__teleworkr_theme";
 const A11Y_KEY = "__teleworkr_a11y_prefs";   // I2 slice 1 — client-local, same as THEME_KEY: purely presentational, no server meaning
 
@@ -82,7 +86,7 @@ const CATEGORY_META = {
 };
 
 let projection = null, currentSurface = null, clockState = null, clockTimer = null, pollTimer = null;
-let notifTimer = null, notifTab = "feed";
+let notifTimer = null, notifTab = "feed", chatTimer = null;
 let wizardStep = 1, wizardSkipped = false, wizardTimezone = null, wizardRoster = null;
 
 const _me = _ => ({id: session.get(APP_CONSTANTS.USERID)?.toString(),
@@ -117,6 +121,8 @@ async function _enterShell() {
     pollTimer = setInterval(_refreshClock, CLOCK_POLL_MS);
     await _refreshNotifBadge();
     notifTimer = setInterval(_refreshNotifBadge, NOTIF_POLL_MS);
+    await _refreshChatBadge();
+    chatTimer = setInterval(_refreshChatBadge, CHAT_POLL_MS);
 
     const wanted = (new URL(window.location.href).hash||"").replace("#", "");
     setSurface(_canReach(wanted) ? wanted : projection.home);
@@ -620,6 +626,21 @@ async function _refreshNotifBadge() {
     if (feed) _updateNotifBadge(feed.unread_count);
 }
 
+/** Unread team-chat messages, painted on the Team chat entry of the Me menu. Silent on failure, like the bell. */
+async function _refreshChatBadge() {
+    if (document.hidden || !projection?.capabilities?.includes("chat.use")) return;
+    let response; try {
+        response = await apiman.rest(`${APP_CONSTANTS.API_PATH}/${API_CHAT}`, "GET", {op: "unread", ..._me()}, true);
+    } catch (err) {LOG.error(`Chat unread poll failed: ${err}`); return;}
+    if (!response?.result) return;
+    const link = document.querySelector("#memenu [data-surface=\"chat\"]");
+    if (!link) return;
+    let badge = link.querySelector(".chatbadge");
+    if (!response.total_unread) {badge?.remove(); return;}
+    if (!badge) {badge = document.createElement("span"); badge.className = "chatbadge"; link.appendChild(badge);}
+    badge.textContent = response.total_unread > 99 ? "99+" : String(response.total_unread);
+}
+
 function _updateNotifBadge(count) {
     const badge = document.querySelector("#notifbadge");
     badge.hidden = count <= 0;
@@ -825,9 +846,10 @@ function stopShell() {
     if (clockTimer) clearInterval(clockTimer);
     if (pollTimer) clearInterval(pollTimer);
     if (notifTimer) clearInterval(notifTimer);
+    if (chatTimer) clearInterval(chatTimer);
     clockTimer = pollTimer = notifTimer = null;
 }
 
-export const shell = {initShell, refreshProjection, setSurface, stopShell, toggleClock,
+export const shell = {initShell, refreshProjection, setSurface, stopShell, toggleClock, refreshChatBadge: _refreshChatBadge,
     a11yPrefs: _a11yPrefs, setA11yPrefs,
     get projection() {return projection;}};

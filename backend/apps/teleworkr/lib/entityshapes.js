@@ -180,6 +180,14 @@ const REGISTER = Object.freeze({
     erasure_run: {shape: SHAPES.APPEND_ONLY, erasure: ERASURE.RETAIN, keep: "7y", anchor: ANCHORS.OCCURRED,
         note: "The erasure audit trail — same treatment as audit_event, for the same reason: this is the record of an irreversible action, not personal data about the person it acted on."},
 
+    // --- team chat ---
+    chat_conversation: {shape: SHAPES.MUTABLE, erasure: ERASURE.RETAIN, keep: "2y", anchor: ANCHORS.NONE,
+        note: "The container. Carries no personal data of its own; a DM is titled by the other participant at read time."},
+    chat_member: {shape: SHAPES.EDGE, erasure: ERASURE.ERASE, keep: null, anchor: ANCHORS.NONE,
+        note: "Membership and the read watermark. Erased with the person."},
+    chat_message: {shape: SHAPES.MUTABLE, erasure: ERASURE.PSEUDONYMISE, keep: "2y", anchor: ANCHORS.OCCURRED,
+        note: "Stays so other people's threads still read; the sender reference resolves to a pseudonymised person. Content is member-readable only (message.read_content is in the CEILING)."},
+
     // --- security (L4) ---
     session: {shape: SHAPES.MUTABLE, erasure: ERASURE.ERASE, keep: "90d", anchor: ANCHORS.NONE,
         note: "The device list L3's own erasure preview already names as erased outright."},
