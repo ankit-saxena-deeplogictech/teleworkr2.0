@@ -68,3 +68,10 @@
 @media (max-width: 900px) {
     .tmt-room { grid-template-columns: 1fr; }
 }
+
+.tmt-chat { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; margin-bottom: 6px; }
+.tmt-msg { background: var(--panel-2, rgba(127,127,127,.08)); border-radius: var(--r-md, 8px); padding: 6px 8px; word-break: break-word; }
+.tmt-msg.mine { margin-left: 18px; }
+.tmt-hand { color: var(--amber, #d98a00); }
+.tmt-rec { color: var(--red, #d33); letter-spacing: .04em; }
+.tmt-ctl.on { outline: 2px solid var(--accent, #4f8cff); }

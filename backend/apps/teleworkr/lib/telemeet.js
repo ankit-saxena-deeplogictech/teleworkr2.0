@@ -6,9 +6,12 @@
  * rendezvous: who is invited, who is in, the short-lived signalling messages
  * (offers, answers, ICE candidates) the browsers pass through us, and the
  * shared notes. The server never receives, records or stores media — which is
- * why disclosure.js can say so plainly. Recording and a whiteboard are out of
- * scope, as are a live cost counter and an SFU; the wireframe itself leaves
- * "self-hosted WebRTC vs a vendor" open.
+ * why disclosure.js can say so plainly. A person may record a copy in their own
+ * browser (the file goes to their own disk); the server only keeps the flag so
+ * everyone else is told. Raise-hand and the in-call chat live here too. A
+ * whiteboard is out of scope, as are a live cost counter and an SFU; the
+ * wireframe itself leaves "self-hosted WebRTC vs a vendor" open. Calls are
+ * encrypted browser to browser (DTLS-SRTP); the server never holds those keys.
  *
  * Access is by invitation only: a room's invitees (the scheduled meeting's
  * attendees plus anyone added). There is no admin or HR way into a room.
@@ -56,6 +59,9 @@ const MIN_LOGGED_SECONDS = 60;
 const MAX_NOTE_LENGTH = 500;
 const MAX_NOTE_LINES = 200;
 const NOTE_KINDS = Object.freeze(["note", "action", "decision"]);
+const MAX_CHAT_LENGTH = 500;
+const MAX_CHAT_MESSAGES = 300;
+const CHAT_RETURNED = 100;
 const SIGNAL_KINDS = Object.freeze(["offer", "answer", "ice"]);
 const DEFAULT_ICE = Object.freeze([{urls: "stun:stun.l.google.com:19302"}]);
 
@@ -208,14 +214,25 @@ exports.roomAsync = async function(request) {
         const joinedEver = (await dblayer.getQueryOrThrow("SELECT 1 AS x FROM room_participant WHERE room_id=? AND person_id=? LIMIT 1", [room_id, person_id]))[0];
         people.push({person_id, display_name: person.display_name, is_me: person_id == actor_person_id,
             is_owner: person_id == fresh.created_by, in_call: liveIds.has(person_id), has_joined: Boolean(joinedEver),
-            local_time: facts.local_time, asleep: facts.asleep && !liveIds.has(person_id)});
+            local_time: facts.local_time, asleep: facts.asleep && !liveIds.has(person_id),
+            hand_raised: Boolean(live.find(p => p.person_id == person_id)?.hand_raised_at),
+            recording: Boolean(live.find(p => p.person_id == person_id)?.recording_since)});
     }
     const notes = (await dblayer.getQueryOrThrow(
         "SELECT * FROM room_note_line WHERE room_id=? AND deleted_at IS NULL ORDER BY created_at ASC", [room_id]))
         .map(line => ({...line, mine: line.created_by == actor_person_id}));
     return {room: fresh, me_in_call: liveIds.has(actor_person_id), participants: live.map(p => ({person_id: p.person_id,
-        joined_at: p.joined_at})), people, notes, ice_servers: _iceServers(), max_participants: MAX_PARTICIPANTS,
-        server_time: at, is_owner: fresh.created_by == actor_person_id};
+        joined_at: p.joined_at,
+        hand_raised_at: p.hand_raised_at || null, recording_since: p.recording_since || null})), people, notes, ice_servers: _iceServers(), max_participants: MAX_PARTICIPANTS,
+        server_time: at, is_owner: fresh.created_by == actor_person_id, chat: liveIds.has(actor_person_id) ? await _chatAsync(room_id) : []};
+}
+
+/** The call's chat, oldest first. Only people in the call are given it. */
+async function _chatAsync(room_id) {
+    const rows = await dblayer.getQueryOrThrow(
+        "SELECT message_id, person_id, text, created_at FROM room_chat_message WHERE room_id=? ORDER BY message_id DESC LIMIT ?",
+        [room_id, CHAT_RETURNED]);
+    return rows.reverse();
 }
 
 /**
@@ -331,6 +348,7 @@ async function _endRoomAsync(room, ended_by) {
     const stillIn = await dblayer.getQueryOrThrow("SELECT * FROM room_participant WHERE room_id=? AND left_at IS NULL", [room.room_id]);
     for (const participant of stillIn) await _finaliseStayAsync(room, participant, _now());
     await dblayer.runCmdBestEffortAsync("DELETE FROM room_signal WHERE room_id=?", [room.room_id]);
+    await dblayer.runCmdBestEffortAsync("DELETE FROM room_chat_message WHERE room_id=?", [room.room_id]);
 
     const lines = await dblayer.getQueryOrThrow(
         "SELECT * FROM room_note_line WHERE room_id=? AND deleted_at IS NULL ORDER BY created_at ASC", [room.room_id]);
@@ -411,6 +429,65 @@ exports.signalPollAsync = async function(request) {
         [room_id, actor_person_id, after]);
     return {signals: rows.map(row => ({signal_id: row.signal_id, from_person_id: row.from_person_id, kind: row.kind,
         payload: JSON.parse(row.payload), created_at: row.created_at}))};
+}
+
+// ---------------------------------------------------------------------------
+// raise hand, recording flag, in-call chat
+// ---------------------------------------------------------------------------
+
+async function _requireLiveAsync(org_id, room_id, actor_person_id, what) {
+    const room = await _roomForInviteeAsync(org_id, room_id, actor_person_id);
+    if (room.ended_at) throw new Error("This call has ended.");
+    if (!(await _liveParticipantsAsync(room_id)).some(p => p.person_id == actor_person_id)) throw new Error(`Join the call to ${what}.`);
+    return room;
+}
+
+/**
+ * Raises or lowers the actor's own hand. The owner may also lower someone else's (`target_person_id`).
+ * @param {object} request {org_id, actor_person_id, room_id, raised, target_person_id}
+ */
+exports.handAsync = async function(request) {
+    const {org_id, actor_person_id, room_id} = request;
+    const room = await _requireLiveAsync(org_id, room_id, actor_person_id, "raise your hand");
+    let target = actor_person_id;
+    if (request.target_person_id && request.target_person_id != actor_person_id) {
+        if (room.created_by != actor_person_id) throw new Error("Only whoever started the call can lower someone else's hand.");
+        if (request.raised) throw new Error("You can only raise your own hand.");
+        target = request.target_person_id;
+    }
+    await dblayer.runCmdOrThrow("UPDATE room_participant SET hand_raised_at=? WHERE room_id=? AND person_id=? AND left_at IS NULL",
+        [request.raised ? _now() : null, room_id, target]);
+    return {raised: Boolean(request.raised), person_id: target};
+}
+
+/**
+ * Says whether the actor is recording a copy of the call in their own browser. The server never sees
+ * the recording; this is only so the others are told.
+ * @param {object} request {org_id, actor_person_id, room_id, on}
+ */
+exports.recordingAsync = async function(request) {
+    const {org_id, actor_person_id, room_id} = request;
+    await _requireLiveAsync(org_id, room_id, actor_person_id, "record it");
+    await dblayer.runCmdOrThrow("UPDATE room_participant SET recording_since=? WHERE room_id=? AND person_id=? AND left_at IS NULL",
+        [request.on ? _now() : null, room_id, actor_person_id]);
+    return {recording: Boolean(request.on)};
+}
+
+/**
+ * Posts a chat message to the people in the call.
+ * @param {object} request {org_id, actor_person_id, room_id, text}
+ */
+exports.chatSendAsync = async function(request) {
+    const {org_id, actor_person_id, room_id} = request;
+    await _requireLiveAsync(org_id, room_id, actor_person_id, "chat");
+    const text = (request.text || "").trim();
+    if (!text) throw new Error("A chat message can't be empty.");
+    if (text.length > MAX_CHAT_LENGTH) throw new Error(`A chat message may be at most ${MAX_CHAT_LENGTH} characters.`);
+    const count = (await dblayer.getQueryOrThrow("SELECT COUNT(*) AS n FROM room_chat_message WHERE room_id=?", [room_id]))[0].n;
+    if (count >= MAX_CHAT_MESSAGES) throw new Error("This call's chat is full.");
+    await dblayer.runCmdOrThrow("INSERT INTO room_chat_message (room_id, org_id, person_id, text, created_at) VALUES (?,?,?,?,?)",
+        [room_id, org_id, actor_person_id, text, _now()]);
+    return {sent: true};
 }
 
 // ---------------------------------------------------------------------------

@@ -12,6 +12,9 @@
  *  op - end          - the owner ends the call for everyone
  *  op - signal_send  - pass a WebRTC message to one person in the call (to_person_id, kind, payload)
  *  op - signal_poll  - WebRTC messages for the actor after a signal_id (after)
+ *  op - hand         - raise or lower your hand (raised; the owner may lower another's with target_person_id)
+ *  op - recording    - say you are / are no longer recording a copy in your own browser (on)
+ *  op - chat_send    - post to the call's chat (text); chat is returned with the room state and deleted when the call ends
  *  op - note_add     - add a note / action / decision line (kind, text, assignee_person_id)
  *  op - note_edit    - edit or remove a line (line_id, text | remove)
  *
@@ -49,6 +52,10 @@ exports.doService = async jsonReq => {
                 to_person_id: jsonReq.to_person_id, kind: jsonReq.kind, payload: jsonReq.payload})};
             case "signal_poll": return {...CONSTANTS.TRUE_RESULT, ...(await telemeet.signalPollAsync({...base,
                 after: jsonReq.after === undefined ? 0 : Number(jsonReq.after)}))};
+            case "hand": return {...CONSTANTS.TRUE_RESULT, ...(await telemeet.handAsync({...base,
+                raised: _bool(jsonReq.raised), target_person_id: jsonReq.target_person_id}))};
+            case "recording": return {...CONSTANTS.TRUE_RESULT, ...(await telemeet.recordingAsync({...base, on: _bool(jsonReq.on)}))};
+            case "chat_send": return {...CONSTANTS.TRUE_RESULT, ...(await telemeet.chatSendAsync({...base, text: jsonReq.text}))};
             case "note_add": return {...CONSTANTS.TRUE_RESULT, ...(await telemeet.noteAddAsync({...base,
                 kind: jsonReq.kind, text: jsonReq.text, assignee_person_id: jsonReq.assignee_person_id}))};
             case "note_edit": return {...CONSTANTS.TRUE_RESULT, result: await telemeet.noteEditAsync({...base,
@@ -68,6 +75,6 @@ const _actorAsync = async jsonReq => {
 }
 
 const OPS = ["create_room", "my_rooms", "room", "join", "heartbeat", "leave", "end", "signal_send", "signal_poll",
-    "note_add", "note_edit"];
+    "hand", "recording", "chat_send", "note_add", "note_edit"];
 
 const validateRequest = jsonReq => jsonReq && OPS.includes(jsonReq.op) && jsonReq.id && jsonReq.org;

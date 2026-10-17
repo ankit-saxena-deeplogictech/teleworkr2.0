@@ -48,6 +48,7 @@ exports.runTestsAsync = async function(argv) {
         await _testRoster(w);
         await _testSignalling(w);
         await _testNotes(w);
+        await _testHandChatRecording(w);
         await _testStaleAndLeave(w);
         await _testEndAndWriteBack(w);
         await _testDisclosure(w);
@@ -194,6 +195,47 @@ async function _testNotes(w) {
     _check("a removed line disappears", !(await telemeet.roomAsync({...A(w), actor_person_id: w.alice, room_id: w.room})).notes.some(n => n.text == "scratch"));
 }
 
+async function _testHandChatRecording(w) {
+    LOG.console("\n raise hand, in-call chat, recording flag\n");
+    const state = async who => await telemeet.roomAsync({...A(w), actor_person_id: who, room_id: w.room});
+    const R = {...A(w), room_id: w.room};
+
+    await telemeet.handAsync({...R, actor_person_id: w.bob, raised: true});
+    let s = await state(w.alice);
+    _check("a raised hand shows on the roster and the participant list",
+        s.people.find(p => p.person_id == w.bob).hand_raised && s.participants.find(p => p.person_id == w.bob).hand_raised_at > 0);
+    _check("nobody else's hand is up", !s.people.find(p => p.person_id == w.alice).hand_raised);
+    await _checkThrows("you can't raise someone else's hand", _ => telemeet.handAsync({...R, actor_person_id: w.alice, raised: true, target_person_id: w.bob}));
+    await _checkThrows("only the owner can lower someone else's hand", _ => telemeet.handAsync({...R, actor_person_id: w.carol, raised: false, target_person_id: w.bob}));
+    await telemeet.handAsync({...R, actor_person_id: w.alice, raised: false, target_person_id: w.bob});
+    _check("the owner lowered bob's hand", !(await state(w.alice)).people.find(p => p.person_id == w.bob).hand_raised);
+    await telemeet.handAsync({...R, actor_person_id: w.bob, raised: true});
+    await telemeet.handAsync({...R, actor_person_id: w.bob, raised: false});
+    _check("you can lower your own hand", !(await state(w.alice)).people.find(p => p.person_id == w.bob).hand_raised);
+    await _checkThrows("someone not in the call can't raise a hand", _ => telemeet.handAsync({...R, actor_person_id: w.dana, raised: true}));
+
+    await telemeet.chatSendAsync({...R, actor_person_id: w.alice, text: "Can everyone see the deck?"});
+    await telemeet.chatSendAsync({...R, actor_person_id: w.bob, text: "Yes 👍"});
+    s = await state(w.bob);
+    _check("chat messages come back oldest first with their authors",
+        s.chat.length == 2 && s.chat[0].person_id == w.alice && s.chat[1].text == "Yes 👍", JSON.stringify(s.chat));
+    _check("an invitee who isn't in the call is not given the chat", (await state(w.dana)).chat.length == 0);
+    await _checkThrows("someone not in the call can't post to the chat", _ => telemeet.chatSendAsync({...R, actor_person_id: w.dana, text: "hi"}));
+    await _checkThrows("an empty chat message is refused", _ => telemeet.chatSendAsync({...R, actor_person_id: w.alice, text: "  "}));
+    await _checkThrows("a too-long chat message is refused", _ => telemeet.chatSendAsync({...R, actor_person_id: w.alice, text: "x".repeat(501)}));
+
+    await telemeet.recordingAsync({...R, actor_person_id: w.bob, on: true});
+    s = await state(w.alice);
+    _check("everyone can see that bob is recording", s.people.find(p => p.person_id == w.bob).recording &&
+        s.participants.find(p => p.person_id == w.bob).recording_since > 0);
+    await _checkThrows("someone not in the call can't mark themselves recording", _ => telemeet.recordingAsync({...R, actor_person_id: w.dana, on: true}));
+    await telemeet.recordingAsync({...R, actor_person_id: w.bob, on: false});
+    _check("stopping clears the recording flag", !(await state(w.alice)).people.find(p => p.person_id == w.bob).recording);
+    await telemeet.recordingAsync({...R, actor_person_id: w.bob, on: true});
+    await telemeet.joinAsync({...R, actor_person_id: w.bob});
+    _check("rejoining starts clean — no stale hand or recording flag", !(await state(w.alice)).people.find(p => p.person_id == w.bob).recording);
+}
+
 async function _testStaleAndLeave(w) {
     LOG.console("\n presence, leaving, and logging the time\n");
     // bob "closed his laptop": joined an hour ago, last seen ten minutes into the call
@@ -256,6 +298,8 @@ async function _testEndAndWriteBack(w) {
     await _checkThrows("an ended room's notes are read-only", _ => telemeet.noteAddAsync({...A(w), actor_person_id: w.alice, room_id: w.room, text: "late"}));
     const after = await telemeet.roomAsync({...A(w), actor_person_id: w.dana, room_id: w.room});
     _check("an invitee can still read the ended room's notes", after.notes.length == 3 && after.room.ended_at);
+    _check("the call's chat was deleted when it ended",
+        (await dblayer.getQueryOrThrow("SELECT COUNT(*) AS n FROM room_chat_message WHERE room_id=?", [w.room]))[0].n == 0);
 
     // the last person leaving ends a room by itself
     await telemeet.joinAsync({...A(w), actor_person_id: w.alice, room_id: w.meetingRoom});
@@ -268,6 +312,8 @@ async function _testDisclosure(w) {
     const mirror = await disclosure.mirrorAsync({org_id: w.org_id, person_id: w.alice, viewer_person_id: w.alice});
     _check("the mirror states that call audio and video is never recorded or stored",
         mirror.does_not_see.some(item => item.item == "call audio and video" && /never receives, records or stores/.test(item.why)));
+    _check("…and that a copy saved on someone's own computer is announced to the call",
+        mirror.does_not_see.some(item => item.item == "call audio and video" && /told while that is happening/.test(item.why)));
 }
 
 async function _buildWorld() {
@@ -289,7 +335,7 @@ async function _buildWorld() {
 
 async function _cleanup(w) {
     if (!w?.org_id) return;
-    for (const table of ["room_signal", "room_note_line", "room_participant", "room_invitee", "meeting_room", "meeting",
+    for (const table of ["room_chat_message", "room_signal", "room_note_line", "room_participant", "room_invitee", "meeting_room", "meeting",
         "time_entry_event", "notification", "audit_event", "working_window",
         "capability_grant", "role_capability", "role", "employment"])
         await dblayer.runCmdBestEffortAsync(`DELETE FROM ${table} WHERE org_id=?`, [w.org_id]);

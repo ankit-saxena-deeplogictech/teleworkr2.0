@@ -136,7 +136,7 @@ const NEVER_COLLECTED = Object.freeze({
     "focus-block completion rate": "Never a manager metric (C4).",
     "overwork warnings": "Personal signals route to you only (M3).",
     "video notes to other people": "Never shared.",
-    "call audio and video": "Telemeet calls run directly between the people on them. The server never receives, records or stores them.",
+    "call audio and video": "Telemeet calls run directly between the people on them. The server never receives, records or stores them. Anyone on a call can save a copy to their own computer; everyone on the call is told while that is happening.",
     "anything typed and deleted": "Never collected.",
     "your location": "Not tracked.",
     "whether you are online now": "Presence is summarised, not listed (E3)."
